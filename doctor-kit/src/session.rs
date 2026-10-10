@@ -637,12 +637,7 @@ pub fn default_tree(env: &Envelope, ctx: &Ctx) -> Node {
         .meta("skipped", env.data["skipped"].clone())
         .meta("score", score)
         .meta("findings", env.findings.len());
-    for c in env.data["categories"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter_map(Value::as_str)
-    {
+    for c in crate::face::categories_of(env).iter().map(String::as_str) {
         let mine: Vec<(usize, &Finding)> = env
             .findings
             .iter()

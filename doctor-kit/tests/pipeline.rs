@@ -290,3 +290,45 @@ fn interrupt_failure_shape_and_inert_without_a_signal() {
         (130, Some("interrupted"))
     );
 }
+
+#[test]
+fn faces_group_by_finding_category_when_data_has_no_categories() {
+    use doctor_kit::face::{render, Face};
+    use doctor_kit::Theme;
+    let mut a = fnd("r.a", "1", Severity::High);
+    a.category = "net".into();
+    let mut b = fnd("r.b", "2", Severity::Low);
+    b.category = "disk".into();
+    let mut c = fnd("r.c", "3", Severity::Low);
+    c.category = "net".into();
+    let mk = |data: Value| {
+        doctor_core::Envelope::new(
+            "t",
+            "1",
+            0,
+            Score::new(90, "t/1", 0),
+            vec![a.clone(), b.clone(), c.clone()],
+            data,
+        )
+    };
+    let mut t = Theme::default();
+    t.enabled = false;
+    for face in [Face::Rich, Face::Plain, Face::Compact] {
+        let free = render(face, &mk(json!({"mine": true})), &t);
+        assert!(
+            free.contains("r.a") && free.contains("r.b"),
+            "{face:?}: {free}"
+        );
+    }
+    let rich = render(Face::Rich, &mk(json!({"mine": true})), &t);
+    let (net, disk) = (rich.find("net").unwrap(), rich.find("disk").unwrap());
+    assert!(net < disk, "first-seen order, grouped: {rich}");
+    assert_eq!(
+        rich.matches("net").count(),
+        1,
+        "one heading for both net findings"
+    );
+    // A declared list still wins, in its own order.
+    let declared = render(Face::Rich, &mk(json!({"categories": ["disk", "net"]})), &t);
+    assert!(declared.find("disk").unwrap() < declared.find("net").unwrap());
+}
