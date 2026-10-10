@@ -126,6 +126,8 @@ runs unchanged.
   `mcp::exec_self` re-runs your CLI with `--json` (timeout, size cap, which exit codes are results).
 - **Agents**: `fix --from report.json` (no rescan), `fix --agent claude|codex|cursor [--yolo]`, `install --print-only`,
   `Doctor::agent_files` (exact bodies, own markers), symlink-safe writes, `ci install --force`.
+- **Report-only commands, own reports, own baseline parsing** (0.2.1): `render_human`, `finish_with(.. FinishOpts {
+  never_fail: true })`, `load_baseline`, `preflight_error`, `mcp_texts`, `ci_overwrite`, lazy `expand` trees.
 - **Ctrl-C**: `interrupt::{install, interrupted, check}`; `scan` exits 130 with an `interrupted` failure envelope.
 
 See [CHANGELOG.md](CHANGELOG.md) for the full list and the few behaviour changes.

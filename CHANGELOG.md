@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.2.1
+
+Patch release for the android-doctor and ble-doctor migrations. Source-compatible with 0.2.0: no field is
+added to a public struct, every new hook is defaulted, and `doctor-kit/tests/compat_020.rs` pins the 0.2.0
+shapes (`OutputArgs`, `McpWire`, `ExecOpts` literals).
+
+### Fixed (security)
+- Faces (`rich`, `plain`, `compact`), `shell` and `explore` now strip control, escape (ANSI/OSC), bidi and
+  zero-width characters from finding text before showing it (contract section 8): id, category, message,
+  location, evidence, remedy. `face::sanitize_envelope` is the one place. Machine output (`--json`, SARIF,
+  the MCP `scan` result) is unchanged.
+
+### Added
+- `Doctor::render_human(&Envelope, &Face, &Theme) -> Option<String>`: a tool's own human report through
+  `finish` (baseline, SARIF and exit pipeline kept). `finish_with` / `FinishOpts { never_fail }`: a
+  report-only command that never fails on findings.
+- `Doctor::load_baseline(&Path)`: tool-owned baseline parsing (default: the kit loader).
+  `Doctor::preflight_error(PreflightKind, msg)` and `ScanFailure::plain` (no `error: ` prefix).
+- `Doctor::mcp_texts() -> McpTexts` (invalid-request messages, unknown tool `{t}`, tool error wrapper `{e}`,
+  serverInfo) and `mcp::exec_self_fmt` (error template with `{stderr}` / `{code}`). `ping` and -32600 stay.
+- `Doctor::ci_overwrite()` and `Overwrite::Never` (per-tool `ci install` policy; `--force` still overrides).
+- `Doctor::expand`: lazy children for `shell`/`explore` domain trees.
+
+### Changed
+- `install::upsert_block_with` writes the body byte-exact (no trim). `upsert_block` and the default
+  `agent_files` block still trim, so default `install` output is unchanged.
+
 ## 0.2.0
 
 Additive: a `Doctor` written for 0.1 compiles and prints the same bytes (stdout, files, exit codes), except for the
