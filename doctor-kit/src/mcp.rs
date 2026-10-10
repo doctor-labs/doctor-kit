@@ -42,6 +42,38 @@ pub struct McpWire {
     pub blank_line_is_parse_error: bool,
 }
 
+/// More wire texts, for tools that must keep an older server's exact answers. Separate from
+/// [`McpWire`] so code that builds `McpWire` literally keeps compiling; build this one with
+/// `McpTexts { field: .., ..McpTexts::default() }`.
+#[derive(Debug, Clone)]
+pub struct McpTexts {
+    /// Message of a request that is not a JSON object (code -32600).
+    pub invalid_request: String,
+    /// Message of a request whose `id` is not a string or integer (code -32600).
+    pub invalid_request_id: String,
+    /// Message of a request with no `method` (code -32600).
+    pub invalid_request_method: String,
+    /// Result text of a call to a tool that does not exist; `{t}` is the tool name.
+    pub unknown_tool: String,
+    /// Wraps the `Err` text of a tool before it is sent (`isError: true`); `{e}` is that text.
+    pub tool_error: String,
+    /// `serverInfo` (name, version) in the `initialize` answer; `None` = the doctor's own.
+    pub server_info: Option<(String, String)>,
+}
+
+impl Default for McpTexts {
+    fn default() -> Self {
+        McpTexts {
+            invalid_request: "invalid request".into(),
+            invalid_request_id: "invalid request: bad id".into(),
+            invalid_request_method: "invalid request: no method".into(),
+            unknown_tool: "unknown tool {t}".into(),
+            tool_error: "{e}".into(),
+            server_info: None,
+        }
+    }
+}
+
 pub const DEFAULT_PROTOCOL: &str = "2024-11-05";
 
 impl Default for McpWire {
@@ -79,6 +111,16 @@ impl Default for ExecOpts {
 /// own path with --json". Stdin is closed. A listed exit code gives `Ok(stdout)`; any other exit,
 /// a timeout or an oversized output gives `Err` (stderr text when there is some).
 pub fn exec_self(args: &[String], o: &ExecOpts) -> Result<String, String> {
+    exec_self_fmt(args, o, None)
+}
+
+/// [`exec_self`] with a template for the `Err` of an exit code not in `ok_codes`: `{stderr}` is
+/// the child's trimmed stderr and `{code}` its exit code (android keeps `"{stderr} (exit {code})"`).
+pub fn exec_self_fmt(
+    args: &[String],
+    o: &ExecOpts,
+    error_template: Option<&str>,
+) -> Result<String, String> {
     use std::process::{Command, Stdio};
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::Arc;
@@ -139,10 +181,10 @@ pub fn exec_self(args: &[String], o: &ExecOpts) -> Result<String, String> {
         Some(c) if o.ok_codes.contains(&c) => Ok(String::from_utf8_lossy(&out).into_owned()),
         Some(c) => {
             let e = String::from_utf8_lossy(&err).trim().to_string();
-            Err(if e.is_empty() {
-                format!("exited with code {c}")
-            } else {
-                e
+            Err(match error_template {
+                Some(t) => t.replace("{stderr}", &e).replace("{code}", &c.to_string()),
+                None if e.is_empty() => format!("exited with code {c}"),
+                None => e,
             })
         }
         None => Err("terminated by a signal".into()),
@@ -217,8 +259,8 @@ fn opts_of(d: &dyn Doctor, args: &Value) -> Result<(String, Opts), String> {
 fn call(d: &dyn Doctor, name: &str, args: &Value) -> Result<String, String> {
     if let Some(tools) = d.mcp_tools() {
         return match tools.iter().find(|t| t.name == name) {
-            Some(t) => (t.call)(args),
-            None => Err(format!("unknown tool {name}")),
+            Some(t) => (t.call)(args).map_err(|e| d.mcp_texts().tool_error.replace("{e}", &e)),
+            None => Err(d.mcp_texts().unknown_tool.replace("{t}", name)),
         };
     }
     let (path, opts) = opts_of(d, args)?;
@@ -231,7 +273,7 @@ fn call(d: &dyn Doctor, name: &str, args: &Value) -> Result<String, String> {
             let hits = fix::select(&env, args.get("id").and_then(Value::as_str))?;
             Ok(d.fix_prompt(&env, &hits))
         }
-        o => Err(format!("unknown tool {o}")),
+        o => Err(d.mcp_texts().unknown_tool.replace("{t}", o)),
     }
 }
 
@@ -242,16 +284,17 @@ fn error(id: Value, code: i64, msg: &str) -> Value {
 /// Handle one request; `None` for a notification.
 pub fn handle(d: &dyn Doctor, req: &Value) -> Option<Value> {
     let wire = d.mcp_wire();
+    let texts = d.mcp_texts();
     let Some(obj) = req.as_object() else {
-        return Some(error(Value::Null, -32600, "invalid request"));
+        return Some(error(Value::Null, -32600, &texts.invalid_request));
     };
     let id = match obj.get("id") {
         None => return None,
         Some(v) if v.is_string() || v.is_i64() || v.is_u64() => v.clone(),
-        Some(_) => return Some(error(Value::Null, -32600, "invalid request: bad id")),
+        Some(_) => return Some(error(Value::Null, -32600, &texts.invalid_request_id)),
     };
     let result = match obj.get("method").and_then(Value::as_str) {
-        None => return Some(error(id, -32600, "invalid request: no method")),
+        None => return Some(error(id, -32600, &texts.invalid_request_method)),
         Some("initialize") => json!({
             "protocolVersion": match &wire.protocol {
                 Protocol::Fixed(v) => v.clone(),
@@ -262,7 +305,10 @@ pub fn handle(d: &dyn Doctor, req: &Value) -> Option<Value> {
                     .to_string(),
             },
             "capabilities": {"tools": {}},
-            "serverInfo": {"name": d.name(), "version": d.version()},
+            "serverInfo": match &texts.server_info {
+                Some((n, v)) => json!({"name": n, "version": v}),
+                None => json!({"name": d.name(), "version": d.version()}),
+            },
         }),
         Some("ping") => json!({}),
         Some("tools/list") => tool_list_for(d),

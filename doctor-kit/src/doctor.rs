@@ -301,6 +301,10 @@ pub trait Doctor {
     fn mcp_wire(&self) -> crate::mcp::McpWire {
         crate::mcp::McpWire::default()
     }
+    /// More MCP wire texts (invalid-request messages, unknown tool, tool error wrapper, serverInfo).
+    fn mcp_texts(&self) -> crate::mcp::McpTexts {
+        crate::mcp::McpTexts::default()
+    }
     /// The SARIF 2.1.0 document written by `--sarif`, as text. Default: the kit's document, pretty
     /// with a trailing newline. A tool with its own locations or serialisation builds its own
     /// (e.g. with `doctor_core::sarif::document`).

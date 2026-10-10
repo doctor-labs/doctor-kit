@@ -27,7 +27,7 @@ pub use cli::{command_with, run, run_with, ExtCommand, Extensions, Meta};
 pub use config::{Config, Weights};
 pub use doctor::{failure_envelope, Collected, Doctor, PreflightKind, ScanFailure, TargetKind};
 pub use face::Face;
-pub use mcp::{McpTool, McpWire, Protocol};
+pub use mcp::{McpTexts, McpTool, McpWire, Protocol};
 pub use node::{Action, Node};
 pub use output::{finish, finish_with, preflight, FinishOpts, OutputArgs};
 pub use session::{Command, Reply, Session};

@@ -138,3 +138,99 @@ fn defaults_are_the_0_1_behaviour() {
         "fixed, not echoed"
     );
 }
+
+mod texts {
+    use super::*;
+    use doctor_kit::McpTexts;
+
+    /// An older server's answers, kept byte for byte.
+    struct Old;
+    impl Doctor for Old {
+        fn name(&self) -> &str {
+            "new-name"
+        }
+        fn version(&self) -> &str {
+            "9"
+        }
+        fn categories(&self) -> Vec<&'static str> {
+            vec![]
+        }
+        fn checks(&self) -> Vec<Box<dyn Check>> {
+            vec![]
+        }
+        fn mcp_tools(&self) -> Option<Vec<McpTool>> {
+            Some(vec![McpTool {
+                name: "t".into(),
+                description: "T".into(),
+                schema: json!({"type": "object"}),
+                call: Box::new(|_| Err("boom".into())),
+            }])
+        }
+        fn mcp_texts(&self) -> McpTexts {
+            McpTexts {
+                invalid_request: "Invalid Request".into(),
+                invalid_request_id: "Invalid Request (id)".into(),
+                invalid_request_method: "Invalid Request (method)".into(),
+                unknown_tool: "no such tool: {t}".into(),
+                tool_error: "{e} (failed)".into(),
+                server_info: Some(("old-name".into(), "1.0".into())),
+            }
+        }
+    }
+
+    #[test]
+    fn every_text_is_the_tools_and_defaults_are_the_kits() {
+        let d = Old;
+        assert_eq!(
+            handle(&d, &json!([1])).unwrap()["error"]["message"],
+            "Invalid Request"
+        );
+        assert_eq!(
+            handle(&d, &json!({"id": 1.5, "method": "x"})).unwrap()["error"]["message"],
+            "Invalid Request (id)"
+        );
+        assert_eq!(
+            handle(&d, &json!({"id": 1})).unwrap()["error"]["message"],
+            "Invalid Request (method)"
+        );
+        for code in [
+            handle(&d, &json!([1])).unwrap(),
+            handle(&d, &json!({"id": 1})).unwrap(),
+        ] {
+            assert_eq!(code["error"]["code"], -32600, "the protocol fix stays");
+        }
+        assert_eq!(
+            handle(&d, &req("ping", json!({}))).unwrap()["result"],
+            json!({}),
+            "ping stays answered"
+        );
+        let i = handle(&d, &req("initialize", json!({}))).unwrap();
+        assert_eq!(
+            i["result"]["serverInfo"],
+            json!({"name": "old-name", "version": "1.0"})
+        );
+        let u = handle(&d, &req("tools/call", json!({"name": "zz"}))).unwrap();
+        assert_eq!(u["result"]["content"][0]["text"], "no such tool: zz");
+        let e = handle(&d, &req("tools/call", json!({"name": "t"}))).unwrap();
+        assert_eq!(
+            (
+                e["result"]["isError"].clone(),
+                e["result"]["content"][0]["text"].clone()
+            ),
+            (json!(true), json!("boom (failed)"))
+        );
+        // defaults
+        let p = Own(true);
+        assert_eq!(
+            handle(&p, &json!([1])).unwrap()["error"]["message"],
+            "invalid request"
+        );
+        let u = handle(&p, &req("tools/call", json!({"name": "zz"}))).unwrap();
+        assert_eq!(u["result"]["content"][0]["text"], "unknown tool zz");
+        let i = handle(&p, &req("initialize", json!({}))).unwrap();
+        assert_eq!(
+            i["result"]["serverInfo"],
+            json!({"name": "own", "version": "1"})
+        );
+    }
+}
