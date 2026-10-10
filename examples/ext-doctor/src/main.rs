@@ -138,6 +138,15 @@ impl Doctor for Ext {
             blank_line_is_parse_error: true,
         }
     }
+    /// `EXT_DOCTOR_CI=always|never` picks the `ci install` overwrite policy (tests).
+    fn ci_overwrite(&self) -> doctor_kit::install::Overwrite {
+        use doctor_kit::install::Overwrite;
+        match std::env::var("EXT_DOCTOR_CI").as_deref() {
+            Ok("always") => Overwrite::Always,
+            Ok("never") => Overwrite::Never,
+            _ => Overwrite::RefuseDifferent,
+        }
+    }
     fn render_human(
         &self,
         env: &Envelope,
