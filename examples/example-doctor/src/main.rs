@@ -11,6 +11,9 @@ impl Doctor for Toy {
     fn version(&self) -> &str {
         env!("CARGO_PKG_VERSION")
     }
+    fn about(&self) -> &str {
+        "A toy doctor that scans a directory of text files"
+    }
     fn categories(&self) -> Vec<&'static str> {
         vec!["secrets", "hygiene", "size", "docs"]
     }
