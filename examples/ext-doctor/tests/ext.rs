@@ -371,3 +371,32 @@ fn ci_install_overwrite_policy_is_the_tools() {
     );
     assert_ne!(std::fs::read_to_string(&wf).unwrap(), "custom");
 }
+
+#[cfg(all(unix, feature = "signals"))]
+#[test]
+fn interrupted_envelope_shape_is_the_tools() {
+    use std::io::{BufRead, BufReader, Read};
+    let mut child = Command::new(env!("CARGO_BIN_EXE_ext-doctor"))
+        .arg("wait")
+        .env("EXT_DOCTOR_INTR", "1")
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut out = BufReader::new(child.stdout.take().unwrap());
+    let mut line = String::new();
+    out.read_line(&mut line).unwrap();
+    Command::new("kill")
+        .args(["-INT", &child.id().to_string()])
+        .status()
+        .unwrap();
+    assert_eq!(child.wait().unwrap().code(), Some(130));
+    let mut rest = String::new();
+    out.read_to_string(&mut rest).unwrap();
+    let v: serde_json::Value = serde_json::from_str(rest.trim()).unwrap();
+    assert_eq!(v["data"]["custom"], true, "the tool's shape");
+    assert_eq!(
+        v["data"]["error"]["kind"], "interrupted",
+        "kit default kept under it"
+    );
+    assert_eq!(v["exit_code"], 130);
+}

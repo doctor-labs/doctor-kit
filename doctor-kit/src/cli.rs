@@ -182,14 +182,14 @@ fn fix(d: &dyn Doctor, a: FixArgs) -> Result<u8, String> {
     };
     let hits = crate::fix::select(&env, a.id.as_deref())?;
     if hits.is_empty() {
-        eprintln!("nothing to fix");
+        warnln!("nothing to fix");
         return Ok(0);
     }
     let prompt = d.fix_prompt(&env, &hits);
     if a.copy {
-        println!("{prompt}");
+        sayln!("{prompt}")?;
         crate::fix::copy(&prompt)?;
-        eprintln!("copied to clipboard");
+        warnln!("copied to clipboard");
     }
     let spec = a
         .agent
@@ -198,7 +198,7 @@ fn fix(d: &dyn Doctor, a: FixArgs) -> Result<u8, String> {
     match spec {
         None => {
             if !a.copy {
-                println!("{prompt}");
+                sayln!("{prompt}")?;
             }
             Ok(0)
         }
@@ -216,25 +216,26 @@ fn hand_off(
 ) -> Result<u8, String> {
     let me = d.command();
     if crate::fix::in_agent(|k| std::env::var(k).ok(), &[]) {
-        eprintln!(
+        warnln!(
             "{me}: running inside an agent; not launching {}. Prompt follows.",
             spec.bin
         );
-        println!("{prompt}");
+        sayln!("{prompt}")?;
         return Ok(0);
     }
     if crate::fix::find_on_path(spec.bin, std::env::var_os("PATH")).is_none() {
-        eprintln!(
+        warnln!(
             "{me}: {} is not on PATH; printing the prompt instead",
             spec.bin
         );
-        println!("{prompt}");
+        sayln!("{prompt}")?;
         return Ok(0);
     }
     if yolo {
-        eprintln!(
+        warnln!(
             "{me}: WARNING launching {} with approvals skipped ({}); the scanned text is untrusted",
-            spec.bin, spec.bypass
+            spec.bin,
+            spec.bypass
         );
     }
     crate::fix::launch(spec, prompt, yolo).map(|_| 0)
@@ -243,22 +244,22 @@ fn hand_off(
 fn install(d: &dyn Doctor, a: InstallArgs) -> Result<u8, String> {
     if a.print_only {
         for f in crate::install::plan(d, a.agent) {
-            println!(
+            sayln!(
                 "=== {} ===\n{}",
                 f.path.display(),
                 crate::install::rendered(&f)
-            );
+            )?;
         }
         if a.agent_hooks {
-            println!(
+            sayln!(
                 "=== .claude/settings.json ===\n{}",
                 crate::install::hook_settings("", &d.command())?
-            );
+            )?;
         }
         return Ok(0);
     }
     for p in crate::install::install(d, &a.dir, a.agent, a.agent_hooks)? {
-        println!("wrote {}", p.display());
+        sayln!("wrote {}", p.display())?;
     }
     Ok(0)
 }
@@ -266,17 +267,17 @@ fn install(d: &dyn Doctor, a: InstallArgs) -> Result<u8, String> {
 fn ci(d: &dyn Doctor, a: CiArgs) -> Result<u8, String> {
     let CiAction::Install { dir, print, force } = a.action;
     if print {
-        print!("{}", d.ci_workflow());
+        say!("{}", d.ci_workflow())?;
     } else {
         let ow = if force {
             crate::install::Overwrite::Always
         } else {
             d.ci_overwrite()
         };
-        println!(
+        sayln!(
             "wrote {}",
             crate::install::ci_install_with(d, &dir, ow)?.display()
-        );
+        )?;
     }
     Ok(0)
 }
@@ -438,7 +439,7 @@ pub fn run_with<D: Doctor>(
     let doctor = match build(&matches) {
         Ok(d) => d,
         Err(e) => {
-            eprintln!("error: {e}");
+            warnln!("error: {e}");
             return ExitCode::from(2);
         }
     };
@@ -461,7 +462,7 @@ pub fn run_with<D: Doctor>(
     match res {
         Ok(code) => ExitCode::from(code),
         Err(e) => {
-            eprintln!("error: {e}");
+            warnln!("error: {e}");
             ExitCode::from(2)
         }
     }

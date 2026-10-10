@@ -147,6 +147,13 @@ impl Doctor for Ext {
             _ => Overwrite::RefuseDifferent,
         }
     }
+    /// `EXT_DOCTOR_INTR` set: add the tool's own key to the interrupted envelope.
+    fn interrupted_envelope(&self, d: &Envelope) -> Option<Envelope> {
+        std::env::var_os("EXT_DOCTOR_INTR")?;
+        let mut e = d.clone();
+        e.data["custom"] = json!(true);
+        Some(e)
+    }
     fn render_human(
         &self,
         env: &Envelope,

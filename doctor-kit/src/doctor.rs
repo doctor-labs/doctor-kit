@@ -299,6 +299,12 @@ pub trait Doctor {
     fn baseline_hook(&self, _saved: &Value, _env: &mut Envelope) -> Result<(), ScanFailure> {
         Ok(())
     }
+    /// The envelope printed when the run is interrupted (Ctrl-C), given the kit's default
+    /// ([`failure_envelope`] of kind `interrupted`, `exit_code` 130). Return `Some(own)` to change its
+    /// shape (data keys, score), `None` to keep the default. The process still exits 130.
+    fn interrupted_envelope(&self, _default: &Envelope) -> Option<Envelope> {
+        None
+    }
     /// Serialisation of the envelope on stdout (`--json`, MCP `scan`). Default: pretty, trailing
     /// newline. The kit never changes a finding's fingerprint, whatever the serialisation.
     fn render_json(&self, env: &Envelope) -> String {

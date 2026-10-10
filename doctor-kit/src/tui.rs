@@ -312,6 +312,14 @@ fn draw(f: &mut Frame, app: &App) {
 }
 
 pub fn run(doctor: &dyn Doctor, ctx: Ctx) -> Result<(), String> {
+    use std::io::IsTerminal;
+    if !std::io::stdin().is_terminal() || !std::io::stdout().is_terminal() {
+        return Err(
+            "explore needs an interactive terminal (stdin and stdout must be a TTY); \
+             use `shell -c \"...\"` in scripts"
+                .into(),
+        );
+    }
     let mut app = App::new(Session::new(doctor, ctx));
     let mut term = ratatui::init();
     let res = (|| -> std::io::Result<()> {
