@@ -10,6 +10,7 @@ pub mod doctor;
 pub mod face;
 pub mod fix;
 pub mod install;
+pub mod interrupt;
 pub mod node;
 pub mod output;
 pub mod session;

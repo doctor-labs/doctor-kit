@@ -194,6 +194,7 @@ fn ci(d: &dyn Doctor, a: CiArgs) -> Result<u8, String> {
 }
 
 fn scan(d: &dyn Doctor, a: ScanArgs) -> Result<u8, String> {
+    crate::interrupt::install();
     let o = crate::output::OutputArgs {
         json: a.out.json,
         score: a.out.score,

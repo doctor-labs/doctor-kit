@@ -7,9 +7,10 @@ license = "MIT"
 publish = false
 
 [features]
-default = ["repl", "mcp"]
+default = ["repl", "mcp", "signals"]
 repl = ["doctor-kit/repl"]
 mcp = ["doctor-kit/mcp"]
+signals = ["doctor-kit/signals"]
 
 [dependencies]
 doctor-kit = { path = "../../doctor-kit", default-features = false }

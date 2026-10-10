@@ -146,3 +146,30 @@ fn shell_runs_without_a_directory() {
     let (c, out, _) = run(&["shell", "-c", "ls"]);
     assert_eq!(c, 0, "{out}");
 }
+
+#[cfg(all(unix, feature = "signals"))]
+#[test]
+fn sigint_exits_130_with_the_interrupted_envelope() {
+    use std::io::{BufRead, BufReader};
+    let mut child = Command::new(env!("CARGO_BIN_EXE_ext-doctor"))
+        .arg("wait")
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut out = BufReader::new(child.stdout.take().unwrap());
+    let mut line = String::new();
+    out.read_line(&mut line).unwrap();
+    assert_eq!(line.trim(), "ready");
+    Command::new("kill")
+        .args(["-INT", &child.id().to_string()])
+        .status()
+        .unwrap();
+    let status = child.wait().unwrap();
+    // Exit 130 by the process itself, not death by signal (that would be code() == None).
+    assert_eq!(status.code(), Some(130));
+    let mut rest = String::new();
+    std::io::Read::read_to_string(&mut out, &mut rest).unwrap();
+    let v: serde_json::Value = serde_json::from_str(rest.trim()).unwrap();
+    assert_eq!(v["data"]["error"]["kind"], "interrupted");
+    assert_eq!(v["exit_code"], 130);
+}

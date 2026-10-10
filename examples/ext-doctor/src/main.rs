@@ -113,12 +113,29 @@ fn probe(d: &Ext, m: &ArgMatches) -> Result<u8, String> {
     Ok(*m.get_one::<u8>("code").unwrap())
 }
 
+/// Waits until interrupted, like a long scan polling at its checkpoints.
+fn wait(d: &Ext, _: &ArgMatches) -> Result<u8, String> {
+    doctor_kit::interrupt::install();
+    println!("ready");
+    let _ = std::io::Write::flush(&mut std::io::stdout());
+    loop {
+        if let Err(f) = doctor_kit::interrupt::check(d) {
+            return Ok(doctor_kit::output::report_failure(d, &f));
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+}
+
 fn main() -> std::process::ExitCode {
     let ext = Extensions {
         commands: vec![
             ExtCommand {
                 command: scan_cmd(),
                 run: scan,
+            },
+            ExtCommand {
+                command: Command::new("wait").about("Wait for Ctrl-C"),
+                run: wait,
             },
             ExtCommand {
                 command: Command::new("probe").about("Probe the subject").arg(
