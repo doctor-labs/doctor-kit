@@ -209,6 +209,23 @@ mod custom_mcp {
     }
 
     #[test]
+    fn exec_failure_gives_the_tool_everything_to_word_its_error() {
+        let (r, _) = session(&[
+            &call(1, "describe", "{}"),
+            &call(2, "describe", r#"{"hang":true}"#),
+        ]);
+        assert_eq!(
+            r[0]["result"]["content"][0]["text"],
+            r#"Exit code=Some(7) signal=None stdout="probing with profile default" stderr="""#
+        );
+        let t = r[1]["result"]["content"][0]["text"].as_str().unwrap();
+        assert!(
+            t.starts_with("Timeout code=None signal=Some(9) stdout=\"ready\""),
+            "{t}"
+        );
+    }
+
+    #[test]
     fn exec_self_error_template() {
         let (r, _) = session(&[
             &call(1, "exit7", "{}"),
@@ -241,7 +258,7 @@ mod custom_mcp {
             .iter()
             .map(|t| t["name"].as_str().unwrap())
             .collect();
-        assert_eq!(names, ["inspect", "exit7", "hang", "flood"]);
+        assert_eq!(names, ["inspect", "exit7", "describe", "hang", "flood"]);
         assert_eq!(r[2]["error"]["message"], "method not found");
         assert_eq!(
             r[3]["error"]["message"], "parse error",
