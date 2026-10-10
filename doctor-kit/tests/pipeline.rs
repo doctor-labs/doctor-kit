@@ -332,3 +332,89 @@ fn faces_group_by_finding_category_when_data_has_no_categories() {
     let declared = render(Face::Rich, &mk(json!({"categories": ["disk", "net"]})), &t);
     assert!(declared.find("disk").unwrap() < declared.find("net").unwrap());
 }
+
+fn hostile() -> doctor_core::Envelope {
+    let evil = "a\u{1b}[31mRED\u{1b}]8;;http://x\u{7}link\u{202e}rtl\u{200b}z\u{85}\r\nnext";
+    let mut f = fnd("id\u{1b}[2J", "fp-1", Severity::High);
+    f.category = "cat\u{1b}[0m".into();
+    f.message = evil.into();
+    f.location = Location::new(LocationKind::File, evil);
+    f.remedy = Some(evil.into());
+    f.evidence = vec![doctor_core::Evidence {
+        reference: evil.into(),
+        value: evil.into(),
+    }];
+    doctor_core::Envelope::new("t", "1", 1, Score::new(50, "t/1", 0), vec![f], json!({}))
+}
+
+fn assert_clean(s: &str, what: &str) {
+    for bad in ['\u{1b}', '\u{7}', '\u{202e}', '\u{200b}', '\u{85}', '\r'] {
+        assert!(!s.contains(bad), "{what}: {bad:?} survived in {s:?}");
+    }
+}
+
+#[test]
+fn faces_strip_hostile_control_characters_from_finding_text() {
+    use doctor_kit::face::{render, Face};
+    let mut t = doctor_kit::Theme::default();
+    t.enabled = false; // no styling of our own: any ESC in the output came from the finding
+    for face in [Face::Plain, Face::Rich, Face::Compact] {
+        let out = render(face, &hostile(), &t);
+        assert_clean(&out, &format!("{face:?}"));
+        assert!(out.contains("RED"), "text kept: {out}");
+    }
+    // Styled output keeps only the theme's own escapes: strip them and nothing hostile is left.
+    let styled = render(Face::Rich, &hostile(), &doctor_kit::Theme::default());
+    assert!(!styled.contains("\u{202e}") && !styled.contains("\u{7}"));
+}
+
+#[test]
+fn shell_replies_and_the_session_tree_are_sanitized_too() {
+    use doctor_kit::Session;
+    struct H;
+    impl Doctor for H {
+        fn name(&self) -> &str {
+            "h"
+        }
+        fn version(&self) -> &str {
+            "1"
+        }
+        fn categories(&self) -> Vec<&'static str> {
+            vec![]
+        }
+        fn checks(&self) -> Vec<Box<dyn Check>> {
+            vec![]
+        }
+        fn target(&self) -> TargetKind {
+            TargetKind::Detached
+        }
+        fn collect(&self, _: &Ctx) -> Result<Collected, ScanFailure> {
+            Ok(Collected {
+                findings: hostile().findings,
+                data: json!({}),
+                gaps: 0,
+            })
+        }
+    }
+    let d = H;
+    let mut s = Session::new(&d, Ctx::detached(Config::default(), Severity::High));
+    for line in [
+        "ls",
+        "cat 1",
+        "why 1",
+        "info",
+        "find RED",
+        "ls --json",
+        "cat 1 --json",
+    ] {
+        let text = match s.exec(line) {
+            Ok(doctor_kit::session::Outcome::Text(t)) => t,
+            Ok(_) => String::new(),
+            Err(e) => e,
+        };
+        assert_clean(
+            &text.replace("\\u001b", "\u{1b}").replace("\\r", "\r"),
+            line,
+        );
+    }
+}
