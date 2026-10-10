@@ -6,14 +6,13 @@ use crate::doctor::{is_scored, Doctor};
 use crate::face::{render, Face};
 use crate::install::Agent;
 use crate::theme::Theme;
-use clap::{Args, Parser, Subcommand, ValueEnum};
+use clap::{Args, CommandFactory, FromArgMatches, Parser, Subcommand, ValueEnum};
 use doctor_core::{Envelope, Severity};
 use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 #[derive(Parser)]
-#[command(version, about)]
 struct Cli {
     #[command(subcommand)]
     cmd: Cmd,
@@ -274,8 +273,19 @@ fn scan(d: &dyn Doctor, a: ScanArgs) -> Result<u8, String> {
     Ok(env.exit_code)
 }
 
+fn command_for<D: Doctor>(d: &D) -> clap::Command {
+    Cli::command()
+        .name(d.name().to_string())
+        .bin_name(d.name().to_string())
+        .version(d.version().to_string())
+        .about(d.about().to_string())
+}
+
 pub fn run<D: Doctor>(doctor: D) -> ExitCode {
-    let res = match Cli::parse().cmd {
+    // Name, version and about come from the doctor, not from doctor-kit's own Cargo metadata.
+    let matches = command_for(&doctor).get_matches();
+    let cli = Cli::from_arg_matches(&matches).unwrap_or_else(|e| e.exit());
+    let res = match cli.cmd {
         Cmd::Scan(a) => scan(&doctor, a),
         Cmd::Fix(a) => fix(&doctor, a),
         Cmd::Install(a) => install(&doctor, a),
@@ -298,5 +308,41 @@ pub fn run<D: Doctor>(doctor: D) -> ExitCode {
             eprintln!("error: {e}");
             ExitCode::from(2)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct Named;
+    impl Doctor for Named {
+        fn name(&self) -> &str {
+            "foo-doctor"
+        }
+        fn version(&self) -> &str {
+            "9.9.9"
+        }
+        fn about(&self) -> &str {
+            "Scans foo"
+        }
+        fn categories(&self) -> Vec<&'static str> {
+            vec![]
+        }
+        fn checks(&self) -> Vec<Box<dyn crate::check::Check>> {
+            vec![]
+        }
+    }
+
+    #[test]
+    fn help_and_version_come_from_the_doctor() {
+        let mut cmd = command_for(&Named);
+        let help = cmd.render_help().to_string();
+        assert!(
+            help.contains("Scans foo") && help.contains("foo-doctor"),
+            "{help}"
+        );
+        assert!(!help.contains("Reusable runtime"), "{help}");
+        assert_eq!(cmd.render_version().trim(), "foo-doctor 9.9.9");
     }
 }

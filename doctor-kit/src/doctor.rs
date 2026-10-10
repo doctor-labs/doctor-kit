@@ -26,6 +26,10 @@ pub fn is_scored(s: &Score) -> bool {
 pub trait Doctor {
     fn name(&self) -> &str;
     fn version(&self) -> &str;
+    /// One-line description shown by `--help` (default: none).
+    fn about(&self) -> &str {
+        ""
+    }
     /// Declared categories, in display order. Findings in other categories are dropped.
     fn categories(&self) -> Vec<&'static str>;
     /// The registry: explicit, no reflection.
