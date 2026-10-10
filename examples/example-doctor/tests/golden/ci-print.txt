@@ -1,0 +1,23 @@
+exit: 0
+--- stdout ---
+# Written by `example-doctor ci install`. Scans only what the pull request changed.
+name: example-doctor
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo install --locked example-doctor
+      - name: Scan changed files
+        run: example-doctor scan . --scope changed --base origin/${{ github.base_ref }} --headless --fail-on high
+--- stderr ---

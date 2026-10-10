@@ -1,0 +1,20 @@
+exit: 2
+--- stdout ---
+--- stderr ---
+A toy doctor that scans a directory of text files
+
+Usage: example-doctor <COMMAND>
+
+Commands:
+  scan     Scan a target and print a report
+  shell    Interactive shell over the same session
+  explore  Full-screen explorer over the same session
+  mcp      MCP stdio server exposing `scan` and `fix` as tools
+  fix      Print (or copy) a prompt for a coding agent from one finding or the whole scan
+  install  Write an agent skill, Cursor rule and AGENTS.md block into a repo
+  ci       CI helpers
+  help     Print this message or the help of the given subcommand(s)
+
+Options:
+  -h, --help     Print help
+  -V, --version  Print version

@@ -1,0 +1,6 @@
+exit: 2
+--- stdout ---
+--- stderr ---
+error: invalid value 'huge' for '--fail-on <FAIL_ON>': expected one of info|low|medium|high|critical, got `huge`
+
+For more information, try '--help'.

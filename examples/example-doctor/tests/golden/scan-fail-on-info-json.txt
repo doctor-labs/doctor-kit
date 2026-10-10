@@ -1,0 +1,180 @@
+exit: 1
+--- stdout ---
+{
+  "schema": "doctor/1",
+  "tool": "example-doctor",
+  "version": "0.1.0",
+  "exit_code": 1,
+  "score": {
+    "value": 57,
+    "label": "critical",
+    "model": "doctor-kit/1",
+    "coverage_gaps": 0
+  },
+  "findings": [
+    {
+      "id": "secret.aws-key",
+      "fingerprint": "0e8718864ec047bb",
+      "severity": "critical",
+      "category": "secrets",
+      "message": "AWS access key id in source",
+      "location": {
+        "kind": "file",
+        "ref": "notes/deploy.txt",
+        "line": 3
+      },
+      "evidence": [
+        {
+          "ref": "line",
+          "value": "export AWS_A…"
+        }
+      ],
+      "remedy": "Revoke the key and load it from the environment.",
+      "check": "secret.aws-key"
+    },
+    {
+      "id": "secret.password",
+      "fingerprint": "07cfde164ba71f3f",
+      "severity": "high",
+      "category": "secrets",
+      "message": "Hard-coded password",
+      "location": {
+        "kind": "file",
+        "ref": "notes/db.txt",
+        "line": 2
+      },
+      "evidence": [
+        {
+          "ref": "line",
+          "value": "db_password …"
+        }
+      ],
+      "remedy": "Move it to a secret store.",
+      "check": "secret.password"
+    },
+    {
+      "id": "size.large-file",
+      "fingerprint": "0849ed5d4132e3cd",
+      "severity": "medium",
+      "category": "size",
+      "message": "File larger than 4 KiB",
+      "location": {
+        "kind": "file",
+        "ref": "notes/log-dump.txt"
+      },
+      "remedy": "Split it or move it out of the repo.",
+      "check": "size.large-file"
+    },
+    {
+      "id": "hygiene.todo",
+      "fingerprint": "0398619d652c540a",
+      "severity": "low",
+      "category": "hygiene",
+      "message": "Unresolved TODO/FIXME",
+      "location": {
+        "kind": "file",
+        "ref": "notes/deploy.txt",
+        "line": 4
+      },
+      "evidence": [
+        {
+          "ref": "line",
+          "value": "TODO: rotate…"
+        }
+      ],
+      "remedy": "Resolve it or file an issue.",
+      "check": "hygiene.todo"
+    },
+    {
+      "id": "hygiene.todo",
+      "fingerprint": "33bf7685fef0c103",
+      "severity": "low",
+      "category": "hygiene",
+      "message": "Unresolved TODO/FIXME",
+      "location": {
+        "kind": "file",
+        "ref": "notes/db.txt",
+        "line": 3
+      },
+      "evidence": [
+        {
+          "ref": "line",
+          "value": "FIXME: use t…"
+        }
+      ],
+      "remedy": "Resolve it or file an issue.",
+      "check": "hygiene.todo"
+    },
+    {
+      "id": "hygiene.todo",
+      "fingerprint": "c77e84b5fac99ddc",
+      "severity": "low",
+      "category": "hygiene",
+      "message": "Unresolved TODO/FIXME",
+      "location": {
+        "kind": "file",
+        "ref": "src/todo.txt",
+        "line": 2
+      },
+      "evidence": [
+        {
+          "ref": "line",
+          "value": "TODO: handle…"
+        }
+      ],
+      "remedy": "Resolve it or file an issue.",
+      "check": "hygiene.todo"
+    },
+    {
+      "id": "hygiene.todo",
+      "fingerprint": "cde142faaba3697f",
+      "severity": "low",
+      "category": "hygiene",
+      "message": "Unresolved TODO/FIXME",
+      "location": {
+        "kind": "file",
+        "ref": "src/todo.txt",
+        "line": 3
+      },
+      "evidence": [
+        {
+          "ref": "line",
+          "value": "TODO: add re…"
+        }
+      ],
+      "remedy": "Resolve it or file an issue.",
+      "check": "hygiene.todo"
+    },
+    {
+      "id": "docs.no-readme",
+      "fingerprint": "a96c7280f1db9a0d",
+      "severity": "info",
+      "category": "docs",
+      "message": "No README at the root",
+      "location": {
+        "kind": "file",
+        "ref": "."
+      },
+      "remedy": "Add a README.md.",
+      "check": "docs.no-readme"
+    }
+  ],
+  "data": {
+    "advice": {
+      "hygiene.todo": "Pattern rule `hygiene.todo`; disable it in doctor.toml under [checks].",
+      "secret.aws-key": "Pattern rule `secret.aws-key`; disable it in doctor.toml under [checks].",
+      "secret.password": "Pattern rule `secret.password`; disable it in doctor.toml under [checks]."
+    },
+    "categories": [
+      "secrets",
+      "hygiene",
+      "size",
+      "docs"
+    ],
+    "checks_run": 5,
+    "files": 5,
+    "scope": "full",
+    "skipped": []
+  }
+}
+--- stderr ---

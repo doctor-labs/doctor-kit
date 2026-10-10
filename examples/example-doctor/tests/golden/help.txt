@@ -1,0 +1,292 @@
+$ example-doctor --help
+exit: 0
+--- stdout ---
+A toy doctor that scans a directory of text files
+
+Usage: example-doctor <COMMAND>
+
+Commands:
+  scan     Scan a target and print a report
+  shell    Interactive shell over the same session
+  explore  Full-screen explorer over the same session
+  mcp      MCP stdio server exposing `scan` and `fix` as tools
+  fix      Print (or copy) a prompt for a coding agent from one finding or the whole scan
+  install  Write an agent skill, Cursor rule and AGENTS.md block into a repo
+  ci       CI helpers
+  help     Print this message or the help of the given subcommand(s)
+
+Options:
+  -h, --help     Print help
+  -V, --version  Print version
+--- stderr ---
+
+$ example-doctor --version
+exit: 0
+--- stdout ---
+example-doctor 0.1.0
+--- stderr ---
+
+$ example-doctor scan --help
+exit: 0
+--- stdout ---
+Scan a target and print a report
+
+Usage: example-doctor scan [OPTIONS] [PATH]
+
+Arguments:
+  [PATH]
+          Directory to examine
+          
+          [default: .]
+
+Options:
+      --scope <SCOPE>
+          full, or only changed files (worktree vs HEAD, untracked, and `--base`)
+
+          Possible values:
+          - full
+          - changed: Files in `git diff HEAD`. Falls back to full when git is unavailable
+          
+          [default: full]
+
+      --base <BASE>
+          PR mode: with `--scope changed`, also files changed since merge-base(BASE, HEAD)
+
+      --config <CONFIG>
+          doctor.toml (default: <path>/doctor.toml when present)
+
+      --fail-on <FAIL_ON>
+          Exit 1 when a finding is at or above this severity
+          
+          [default: high]
+
+      --face <FACE>
+          Output face
+
+          Possible values:
+          - plain:   Minimalist text, one line per finding
+          - rich:    Boxed report with a score gauge, grouped by category
+          - compact: One-line summary plus a findings table
+          
+          [default: rich]
+
+      --theme <THEME>
+          mono | clinical | contrast (default: the doctor's own theme)
+
+      --theme-file <THEME_FILE>
+          theme.toml overlay (default: <path>/theme.toml when present)
+
+      --color <COLOR>
+          [default: auto]
+          [possible values: auto, always, never]
+
+      --json
+          Print the doctor/1 envelope as JSON
+
+      --score
+          Print only the score number
+
+      --headless
+          Plain text, no color: for CI and pipes
+
+      --sarif <SARIF>
+          Also write a SARIF 2.1.0 report to this path
+
+  -h, --help
+          Print help (see a summary with '-h')
+--- stderr ---
+
+$ example-doctor fix --help
+exit: 0
+--- stdout ---
+Print (or copy) a prompt for a coding agent from one finding or the whole scan
+
+Usage: example-doctor fix [OPTIONS] [ID]
+
+Arguments:
+  [ID]
+          Finding rule id or fingerprint prefix (default: every finding)
+
+Options:
+  -C, --path <PATH>
+          Directory to scan
+          
+          [default: .]
+
+      --scope <SCOPE>
+          full, or only changed files (worktree vs HEAD, untracked, and `--base`)
+
+          Possible values:
+          - full
+          - changed: Files in `git diff HEAD`. Falls back to full when git is unavailable
+          
+          [default: full]
+
+      --base <BASE>
+          PR mode: with `--scope changed`, also files changed since merge-base(BASE, HEAD)
+
+      --config <CONFIG>
+          doctor.toml (default: <path>/doctor.toml when present)
+
+      --fail-on <FAIL_ON>
+          Exit 1 when a finding is at or above this severity
+          
+          [default: high]
+
+      --copy
+          Also copy the prompt to the clipboard
+
+  -h, --help
+          Print help (see a summary with '-h')
+--- stderr ---
+
+$ example-doctor install --help
+exit: 0
+--- stdout ---
+Write an agent skill, Cursor rule and AGENTS.md block into a repo
+
+Usage: example-doctor install [OPTIONS]
+
+Options:
+      --dir <DIR>
+          Repository to write into
+          
+          [default: .]
+
+      --agent <AGENT>
+          One agent only (default: all)
+
+          Possible values:
+          - claude
+          - cursor
+          - codex:    Codex and opencode both read AGENTS.md
+          - opencode
+
+      --agent-hooks
+          Also add a Claude Code PostToolUse hook that scans changed files after edits
+
+  -h, --help
+          Print help (see a summary with '-h')
+--- stderr ---
+
+$ example-doctor ci --help
+exit: 0
+--- stdout ---
+CI helpers
+
+Usage: example-doctor ci <COMMAND>
+
+Commands:
+  install  Write a GitHub Actions workflow that scans pull requests
+  help     Print this message or the help of the given subcommand(s)
+
+Options:
+  -h, --help  Print help
+--- stderr ---
+
+$ example-doctor ci install --help
+exit: 0
+--- stdout ---
+Write a GitHub Actions workflow that scans pull requests
+
+Usage: example-doctor ci install [OPTIONS]
+
+Options:
+      --dir <DIR>  [default: .]
+      --print      Print the workflow instead of writing it
+  -h, --help       Print help
+--- stderr ---
+
+$ example-doctor mcp --help
+exit: 0
+--- stdout ---
+MCP stdio server exposing `scan` and `fix` as tools
+
+Usage: example-doctor mcp
+
+Options:
+  -h, --help  Print help
+--- stderr ---
+
+$ example-doctor shell --help
+exit: 0
+--- stdout ---
+Interactive shell over the same session
+
+Usage: example-doctor shell [OPTIONS] [PATH]
+
+Arguments:
+  [PATH]
+          Directory to examine
+          
+          [default: .]
+
+Options:
+      --scope <SCOPE>
+          full, or only changed files (worktree vs HEAD, untracked, and `--base`)
+
+          Possible values:
+          - full
+          - changed: Files in `git diff HEAD`. Falls back to full when git is unavailable
+          
+          [default: full]
+
+      --base <BASE>
+          PR mode: with `--scope changed`, also files changed since merge-base(BASE, HEAD)
+
+      --config <CONFIG>
+          doctor.toml (default: <path>/doctor.toml when present)
+
+      --fail-on <FAIL_ON>
+          Exit 1 when a finding is at or above this severity
+          
+          [default: high]
+
+  -c <COMMAND>
+          Run these `;`-separated commands and exit
+
+      --json
+          Print every reply as one JSON record (for agents)
+
+  -h, --help
+          Print help (see a summary with '-h')
+--- stderr ---
+
+$ example-doctor explore --help
+exit: 0
+--- stdout ---
+Full-screen explorer over the same session
+
+Usage: example-doctor explore [OPTIONS] [PATH]
+
+Arguments:
+  [PATH]
+          Directory to examine
+          
+          [default: .]
+
+Options:
+      --scope <SCOPE>
+          full, or only changed files (worktree vs HEAD, untracked, and `--base`)
+
+          Possible values:
+          - full
+          - changed: Files in `git diff HEAD`. Falls back to full when git is unavailable
+          
+          [default: full]
+
+      --base <BASE>
+          PR mode: with `--scope changed`, also files changed since merge-base(BASE, HEAD)
+
+      --config <CONFIG>
+          doctor.toml (default: <path>/doctor.toml when present)
+
+      --fail-on <FAIL_ON>
+          Exit 1 when a finding is at or above this severity
+          
+          [default: high]
+
+  -h, --help
+          Print help (see a summary with '-h')
+--- stderr ---
+

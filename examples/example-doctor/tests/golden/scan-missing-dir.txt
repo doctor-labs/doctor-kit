@@ -1,0 +1,4 @@
+exit: 2
+--- stdout ---
+--- stderr ---
+error: /nonexistent/ed-golden: No such file or directory (os error 2)

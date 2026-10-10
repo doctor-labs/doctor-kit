@@ -1,0 +1,4 @@
+exit: 0
+--- stdout ---
+{"command":"ls","cwd":"/","data":[{"actions":0,"children":2,"kind":"category","name":"secrets","summary":"2 findings"},{"actions":0,"children":4,"kind":"category","name":"hygiene","summary":"4 findings"},{"actions":0,"children":1,"kind":"category","name":"size","summary":"1 findings"},{"actions":0,"children":1,"kind":"category","name":"docs","summary":"1 findings"},{"actions":0,"children":5,"kind":"dir","name":"files","summary":"5 files"}],"error":null,"ok":true,"schema":"doctor-shell/1","tool":"example-doctor"}
+--- stderr ---
