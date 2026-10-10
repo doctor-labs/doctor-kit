@@ -164,3 +164,110 @@ fn mcp_rejects_bad_input_without_dying() {
     let r = doctor_kit::mcp::process_line(&d, call).unwrap();
     assert_eq!(r["result"]["isError"], true);
 }
+
+struct Boom;
+impl Check for Boom {
+    fn id(&self) -> &'static str {
+        "t.boom"
+    }
+    fn category(&self) -> &'static str {
+        "cat"
+    }
+    fn run(&self, _: &Ctx) -> CheckResult {
+        panic!("kaboom")
+    }
+}
+struct Mixed;
+impl Doctor for Mixed {
+    fn name(&self) -> &str {
+        "m"
+    }
+    fn version(&self) -> &str {
+        "1"
+    }
+    fn categories(&self) -> Vec<&'static str> {
+        vec!["cat"]
+    }
+    fn checks(&self) -> Vec<Box<dyn Check>> {
+        vec![Box::new(Boom), Box::new(One(Severity::Low))]
+    }
+}
+
+#[test]
+fn a_panicking_check_becomes_a_finding_and_the_scan_continues() {
+    let env = Mixed.scan(&ctx(Config::default()));
+    let ids: Vec<&str> = env.findings.iter().map(|f| f.id.as_str()).collect();
+    assert_eq!(ids, ["t.boom.panic", "t.one"]);
+    assert!(env.findings[0].message.contains("kaboom"));
+    assert_eq!(env.exit_code, 1);
+    assert_eq!(env.data["panicked"][0], "t.boom");
+    // clean scans carry no `panicked` key (envelope bytes unchanged)
+    let ok = D {
+        sev: Severity::Low,
+        scored: true,
+    }
+    .scan(&ctx(Config::default()));
+    assert!(ok.data.get("panicked").is_none());
+}
+
+#[test]
+fn session_verbs_json_registry_and_completion() {
+    use doctor_kit::session::{complete, Outcome};
+    use doctor_kit::{Command, Reply, Session};
+    struct R;
+    impl Doctor for R {
+        fn name(&self) -> &str {
+            "r"
+        }
+        fn version(&self) -> &str {
+            "1"
+        }
+        fn categories(&self) -> Vec<&'static str> {
+            vec!["cat"]
+        }
+        fn checks(&self) -> Vec<Box<dyn Check>> {
+            vec![Box::new(One(Severity::High))]
+        }
+        fn commands(&self) -> Vec<Command> {
+            vec![Command {
+                name: "write",
+                help: "demo",
+                flags: &["--force"],
+                run: |_, _| Ok(Reply::text("wrote")),
+            }]
+        }
+    }
+    let mut s = Session::new(&R, ctx(Config::default()));
+    let mut run = |l: &str| match s.exec(l).unwrap() {
+        Outcome::Text(t) => t,
+        Outcome::Quit => "QUIT".into(),
+    };
+    assert!(run("ls").contains("cat"));
+    run("cd cat");
+    assert_eq!(run("pwd"), "/cat");
+    assert!(run("cat 1").contains("t.one"));
+    assert!(run("find t.one").contains("/cat/1"));
+    assert!(run("info").contains("by_severity"));
+    assert!(run("decode 1").contains("severity: high"));
+    run("cd 1");
+    assert!(run("raw").contains("0000")); // hexdump of the finding JSON
+    run("cd ..");
+    let rec: serde_json::Value = serde_json::from_str(&run("why 1 --json")).unwrap();
+    assert_eq!(
+        (rec["schema"].as_str(), rec["ok"].as_bool()),
+        (Some("doctor-shell/1"), Some(true))
+    );
+    assert_eq!(rec["data"]["id"], "t.one");
+    let bad: serde_json::Value = serde_json::from_str(&run("cd nowhere --json")).unwrap();
+    assert_eq!(bad["ok"], false);
+    assert_eq!(run("write"), "wrote"); // tool command
+    assert!(s.exec("verify").is_err()); // vocabulary word the tool did not register
+    let h = s.hints();
+    assert_eq!(complete(&h, "ex").1, ["export"]);
+    assert!(complete(&h, "wr").1.contains(&"write".to_string()));
+    assert_eq!(complete(&h, "export j"), (7, vec!["json".to_string()]));
+    assert!(complete(&h, "do x --").1.contains(&"--node".to_string()));
+    assert_eq!(complete(&h, "write --f").1, ["--force"]);
+    assert_eq!(complete(&h, "cat ").1, ["1"]);
+    assert!(matches!(s.exec("quit").unwrap(), Outcome::Quit));
+}

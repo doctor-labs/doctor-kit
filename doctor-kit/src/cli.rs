@@ -147,6 +147,9 @@ struct ScanArgs {
     /// Plain text, no color: for CI and pipes
     #[arg(long)]
     headless: bool,
+    /// Also write a SARIF 2.1.0 report to this path
+    #[arg(long)]
+    sarif: Option<PathBuf>,
 }
 
 #[cfg(feature = "repl")]
@@ -157,6 +160,9 @@ struct ShellArgs {
     /// Run these `;`-separated commands and exit
     #[arg(short = 'c')]
     command: Option<String>,
+    /// Print every reply as one JSON record (for agents)
+    #[arg(long)]
+    json: bool,
 }
 
 fn ctx_of(t: &Target) -> Result<Ctx, String> {
@@ -245,6 +251,11 @@ fn theme_of(base: Theme, a: &ScanArgs) -> Result<Theme, String> {
 fn scan(d: &dyn Doctor, a: ScanArgs) -> Result<u8, String> {
     let ctx = ctx_of(&a.target)?;
     let env = d.scan(&ctx);
+    if let Some(p) = &a.sarif {
+        let v = crate::session::to_sarif(&env);
+        std::fs::write(p, serde_json::to_string_pretty(&v).unwrap() + "\n")
+            .map_err(|e| format!("{}: {e}", p.display()))?;
+    }
     if a.json {
         print!("{}", envelope_text(&env));
     } else if a.score {
@@ -275,8 +286,7 @@ pub fn run<D: Doctor>(doctor: D) -> ExitCode {
             .map_err(|e| e.to_string()),
         #[cfg(feature = "repl")]
         Cmd::Shell(a) => ctx_of(&a.target)
-            .and_then(|c| crate::repl::run(&doctor, c, a.command.as_deref()))
-            .map(|_| 0),
+            .and_then(|c| crate::repl::run(&doctor, c, a.command.as_deref(), a.json)),
         #[cfg(feature = "tui")]
         Cmd::Explore(t) => ctx_of(&t)
             .and_then(|c| crate::tui::run(&doctor, c))

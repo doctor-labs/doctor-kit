@@ -20,5 +20,13 @@ Reusable skeleton for "doctor" CLI tools. Output is the `doctor/1` envelope from
     cargo run -p example-doctor -- shell examples/fixture -c "ls; cd secrets; why 1"
     cargo run -p example-doctor -- explore examples/fixture
 
-Kept minimal: the REPL has no tab completion or `--json` machine mode; the TUI is read-only navigation;
-`--scope changed` only uses `git diff HEAD`.
+Interactive layer (shared by `shell` and `explore`, both over one `Session`):
+
+- `Node` tree: children, open-ended `meta` map, raw bytes, per-node `actions`; nothing says "file". Override
+  `Doctor::tree` (start from `session::default_tree`), `decode`, `raw`, `act`, `commands`.
+- Shared verbs `ls cd pwd cat info find decode raw do scan why export help quit`; every command takes `--json`
+  (one `doctor-shell/1` record); `shell --json -c "..."` for agents. `do` on a gated action is a dry run until `--yes`.
+- Tool commands go through `Doctor::commands`; reuse the shared vocabulary `verify connect read write`.
+- REPL tab-completes verbs, children, actions and flags. TUI keys: `hjkl`/arrows, enter, backspace, `/` filter,
+  `:` command line, `d` decode, `w` why, `x` export, tab switches tree/findings focus, `q`.
+- `scan --sarif <path>`; a panicking check becomes a `<check>.panic` finding and the scan continues.

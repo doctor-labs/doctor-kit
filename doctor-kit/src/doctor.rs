@@ -1,4 +1,6 @@
-use crate::check::{Check, Ctx};
+use crate::check::{finding, Check, CheckResult, Ctx};
+use crate::node::Node;
+use crate::session::Command;
 use crate::theme::Theme;
 use doctor_core::{Envelope, Finding, Score, Severity};
 use serde_json::{json, Map, Value};
@@ -73,18 +75,72 @@ pub trait Doctor {
         ))
     }
 
+    // Interactive hooks (shell and explorer). Defaults give a category -> finding tree.
+
+    /// The tree `ls`/`cd`/`cat` walk. Override to expose the tool's own nouns; start from
+    /// [`crate::session::default_tree`] to keep the findings.
+    fn tree(&self, env: &Envelope, ctx: &Ctx) -> Node {
+        crate::session::default_tree(env, ctx)
+    }
+    /// Typed decode of a node for `decode`/`cat` and the detail pane (`None` = generic view).
+    fn decode(&self, _node: &Node) -> Option<String> {
+        None
+    }
+    /// `raw <bytes>` passthrough to the target (APDU, HCI, ...). Unsupported by default.
+    fn raw(&self, _bytes: &[u8]) -> Result<String, String> {
+        Err(format!("`raw` is not supported by {}", self.name()))
+    }
+    /// `do <action>`. When `apply` is false (a gated action without `--yes`), do nothing and
+    /// return what would happen, with the exact bytes where there are any.
+    fn act(
+        &self,
+        _ctx: &Ctx,
+        node: &Node,
+        action: &str,
+        _args: &[String],
+        _apply: bool,
+    ) -> Result<String, String> {
+        Err(format!("no handler for `{action}` on {}", node.name))
+    }
+    /// Domain commands on top of the shared verbs. Shared vocabulary names tools should reuse
+    /// where the concept exists: `verify`, `connect`, `read`, `write`.
+    fn commands(&self) -> Vec<Command> {
+        vec![]
+    }
+
     /// Run applicable, enabled checks and assemble the doctor/1 envelope.
     fn scan(&self, ctx: &Ctx) -> Envelope {
         let cats = self.categories();
         let (mut findings, mut advice, mut skipped) = (Vec::new(), Map::new(), Vec::new());
-        let mut ran = 0;
+        let (mut ran, mut panicked) = (0, Vec::new());
         for c in self.checks() {
             if !ctx.config.check_enabled(c.id()) || !c.applies(ctx) {
                 skipped.push(c.id());
                 continue;
             }
             ran += 1;
-            let r = c.run(ctx);
+            // A panicking check becomes a high-severity finding; the scan continues.
+            let r = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| c.run(ctx))) {
+                Ok(r) => r,
+                Err(p) => {
+                    let why = p
+                        .downcast_ref::<&str>()
+                        .map(|s| s.to_string())
+                        .or_else(|| p.downcast_ref::<String>().cloned())
+                        .unwrap_or_else(|| "unknown panic".into());
+                    panicked.push(c.id());
+                    let mut f = finding(
+                        &format!("{}.panic", c.id()),
+                        c.category(),
+                        doctor_core::Severity::High,
+                        &format!("check `{}` panicked: {why}", c.id()),
+                        std::path::Path::new("."),
+                        None,
+                    );
+                    f.remedy = Some("This is a bug in the check; report it.".into());
+                    CheckResult::findings(vec![f])
+                }
+            };
             if let Some(a) = r.advice {
                 advice.insert(c.id().to_string(), Value::String(a));
             }
@@ -99,11 +155,14 @@ pub trait Doctor {
         Finding::sort(&mut findings);
         let score = self.score(&findings, ctx).unwrap_or_else(unscored);
         let exit = findings.iter().any(|f| f.severity >= ctx.fail_on) as u8;
-        let data = json!({
+        let mut data = json!({
             "categories": cats, "checks_run": ran, "skipped": skipped,
             "advice": advice, "scope": format!("{:?}", ctx.scope).to_lowercase(),
             "files": ctx.files.len(),
         });
+        if !panicked.is_empty() {
+            data["panicked"] = json!(panicked); // only present when a check panicked
+        }
         Envelope::new(self.name(), self.version(), exit, score, findings, data)
     }
 }

@@ -9,6 +9,7 @@ pub mod doctor;
 pub mod face;
 pub mod fix;
 pub mod install;
+pub mod node;
 pub mod session;
 pub mod theme;
 
@@ -24,6 +25,8 @@ pub use cli::run;
 pub use config::{Config, Weights};
 pub use doctor::Doctor;
 pub use face::Face;
+pub use node::{Action, Node};
+pub use session::{Command, Reply, Session};
 pub use theme::Theme;
 
 pub use doctor_core;

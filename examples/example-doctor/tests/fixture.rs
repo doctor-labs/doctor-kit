@@ -174,3 +174,78 @@ fn scope_changed_sees_modified_untracked_and_base_diffs() {
     assert_eq!(refs(&[]), ["c.txt"]);
     assert_eq!(refs(&["--base", "main"]), ["b.txt", "c.txt"]);
 }
+
+fn copy_dir(from: &std::path::Path, to: &std::path::Path) {
+    std::fs::create_dir_all(to).unwrap();
+    for e in std::fs::read_dir(from).unwrap() {
+        let e = e.unwrap();
+        let t = to.join(e.file_name());
+        if e.file_type().unwrap().is_dir() {
+            copy_dir(&e.path(), &t);
+        } else {
+            std::fs::copy(e.path(), t).unwrap();
+        }
+    }
+}
+
+fn shell(dir: &std::path::Path, cmds: &str) -> Vec<serde_json::Value> {
+    let o = bin()
+        .args(["shell", "--json", "-c", cmds])
+        .arg(dir)
+        .output()
+        .unwrap();
+    String::from_utf8(o.stdout)
+        .unwrap()
+        .lines()
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect()
+}
+
+#[test]
+fn shell_json_walks_the_rich_node_and_gates_the_write() {
+    let d = tmp("shell");
+    copy_dir(std::path::Path::new(FX), &d);
+    let r = shell(
+        &d,
+        "cd files; ls; cat notes_db.txt; do --node notes_db.txt; frob",
+    );
+    assert_eq!(r[0]["ok"], true);
+    assert_eq!(r[1]["cwd"], "/files");
+    assert!(r[1]["data"].as_array().unwrap().len() >= 5);
+    assert_eq!(r[2]["data"]["meta"]["path"], "notes/db.txt");
+    assert!(r[2]["data"]["raw_hex"].as_str().unwrap().len() > 8);
+    assert_eq!(r[4]["ok"], false); // unknown verb is a record, not a crash
+
+    let todo = "src_todo.txt";
+    let before = std::fs::read_to_string(d.join("src/todo.txt")).unwrap();
+    let dry = shell(&d, &format!("do strip-todos --node files/{todo}"));
+    assert_eq!(dry[0]["data"]["dry_run"], true);
+    assert_eq!(
+        std::fs::read_to_string(d.join("src/todo.txt")).unwrap(),
+        before
+    );
+    let live = shell(&d, &format!("do strip-todos --node files/{todo} --yes"));
+    assert_eq!(live[0]["data"]["dry_run"], false);
+    let after = std::fs::read_to_string(d.join("src/todo.txt")).unwrap();
+    assert!(before.contains("TODO") && !after.contains("TODO"));
+    // the tool's own command and the shared-vocabulary stub for one it lacks
+    let r = shell(&d, "read files/src_clean.txt; verify");
+    assert_eq!(r[0]["ok"], true);
+    assert_eq!(r[1]["ok"], false);
+}
+
+#[test]
+fn scan_writes_sarif_without_changing_stdout() {
+    let d = tmp("sarif");
+    let p = d.join("out.sarif");
+    let with = bin()
+        .args(["scan", FX, "--json", "--sarif"])
+        .arg(&p)
+        .output()
+        .unwrap();
+    let without = bin().args(["scan", FX, "--json"]).output().unwrap();
+    assert_eq!(with.stdout, without.stdout);
+    let v: serde_json::Value = serde_json::from_slice(&std::fs::read(&p).unwrap()).unwrap();
+    assert_eq!(v["version"], "2.1.0");
+    assert_eq!(v["runs"][0]["results"].as_array().unwrap().len(), 8);
+}
