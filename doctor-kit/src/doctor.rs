@@ -32,6 +32,33 @@ pub trait Doctor {
         Theme::default()
     }
 
+    // Agentic hooks: every tool inherits `mcp`, `fix`, `install` and `ci install`;
+    // override any of these to customize the text they emit.
+
+    /// The command an agent or CI runs (default: the tool name).
+    fn command(&self) -> String {
+        self.name().to_string()
+    }
+    /// Prompt for a coding agent, from the selected findings of `env` (`fix`).
+    fn fix_prompt(&self, env: &Envelope, findings: &[&Finding]) -> String {
+        crate::fix::default_prompt(&self.command(), env, findings)
+    }
+    /// Markdown body of the agent skill, Cursor rule and AGENTS.md block (`install`).
+    fn skill_body(&self) -> String {
+        crate::install::default_skill(&self.command(), &self.categories())
+    }
+    /// YAML steps (unindented, one `- ` list) that make the tool available in CI.
+    fn ci_setup_steps(&self) -> String {
+        format!(
+            "- uses: dtolnay/rust-toolchain@stable\n- run: cargo install --locked {}",
+            self.name()
+        )
+    }
+    /// The whole GitHub Actions workflow written by `ci install`.
+    fn ci_workflow(&self) -> String {
+        crate::install::default_workflow(&self.command(), &self.ci_setup_steps())
+    }
+
     /// Default additive model: 100 minus per-severity weights (from `doctor.toml`), floor 0.
     /// Override for a custom formula, or return `None` for no score at all.
     fn score(&self, findings: &[Finding], ctx: &Ctx) -> Option<Score> {

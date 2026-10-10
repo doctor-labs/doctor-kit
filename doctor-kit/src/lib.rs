@@ -7,9 +7,13 @@ pub mod cli;
 pub mod config;
 pub mod doctor;
 pub mod face;
+pub mod fix;
+pub mod install;
 pub mod session;
 pub mod theme;
 
+#[cfg(feature = "mcp")]
+pub mod mcp;
 #[cfg(feature = "repl")]
 pub mod repl;
 #[cfg(feature = "tui")]

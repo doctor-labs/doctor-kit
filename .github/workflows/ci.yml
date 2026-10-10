@@ -20,5 +20,7 @@ jobs:
           cargo build -p doctor-kit
           cargo build -p doctor-kit --features repl
           cargo build -p doctor-kit --features tui
+          cargo build -p doctor-kit --features mcp
+          cargo build -p example-doctor --no-default-features --features mcp
           cargo build -p example-doctor --no-default-features
           cargo build -p example-doctor --all-features

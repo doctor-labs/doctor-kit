@@ -155,9 +155,10 @@ impl<'a> Session<'a> {
             }
             "info" => self.info(),
             "scan" => {
-                let ctx = Ctx::new(
+                let ctx = Ctx::with_base(
                     &self.ctx.root,
                     self.ctx.scope,
+                    self.ctx.base.clone(),
                     self.ctx.config.clone(),
                     self.ctx.fail_on,
                 )

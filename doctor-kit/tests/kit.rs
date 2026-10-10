@@ -138,3 +138,29 @@ fn theme_toml_overrides_and_rejects_unknown() {
     assert!(t.paint("high", "x").contains("\u{1b}["));
     assert!(Theme::mono().with_toml("bogus = \"red\"").is_err());
 }
+
+#[test]
+fn install_block_is_replaced_in_place() {
+    use doctor_kit::install::upsert_block;
+    let once = upsert_block("top\n", "x", "old");
+    let twice = upsert_block(&format!("{once}bottom\n"), "x", "new");
+    assert!(twice.starts_with("top\n") && twice.ends_with("bottom\n"));
+    assert!(twice.contains("new") && !twice.contains("old"));
+}
+
+#[cfg(feature = "mcp")]
+#[test]
+fn mcp_rejects_bad_input_without_dying() {
+    let d = D {
+        sev: Severity::High,
+        scored: true,
+    };
+    let bad = doctor_kit::mcp::process_line(&d, b"{nope").unwrap();
+    assert_eq!(bad["error"]["code"], -32700);
+    let unk =
+        doctor_kit::mcp::process_line(&d, br#"{"jsonrpc":"2.0","id":1,"method":"x"}"#).unwrap();
+    assert_eq!(unk["error"]["code"], -32601);
+    let call = br#"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"nope"}}"#;
+    let r = doctor_kit::mcp::process_line(&d, call).unwrap();
+    assert_eq!(r["result"]["isError"], true);
+}
