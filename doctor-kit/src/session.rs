@@ -84,6 +84,8 @@ pub struct Session<'a> {
     /// True once any command failed (for the exit code of `shell -c`).
     pub failed: bool,
     commands: Vec<Command>,
+    /// Name paths already offered to `Doctor::expand` (each is asked once per scan).
+    expanded: std::collections::HashSet<Vec<String>>,
 }
 
 fn take_flag(a: &mut Vec<String>, f: &str) -> bool {
@@ -116,6 +118,54 @@ impl<'a> Session<'a> {
             json: false,
             failed: false,
             commands: doctor.commands(),
+            expanded: Default::default(),
+        }
+    }
+
+    /// Ask [`Doctor::expand`] for the children of the (childless) node at `path`, once.
+    fn expand_node(&mut self, path: &[usize]) {
+        let names: Vec<String> = {
+            let mut n = &self.tree;
+            let mut v = vec![];
+            for &i in path {
+                n = &n.children[i];
+                v.push(n.name.clone());
+            }
+            v
+        };
+        if !self.node_at(path).children.is_empty() || !self.expanded.insert(names.clone()) {
+            return;
+        }
+        let kids = self
+            .doctor
+            .expand(&self.env, &self.ctx, &names, self.node_at(path));
+        if let Some(kids) = kids {
+            let mut n = &mut self.tree;
+            for &i in path {
+                n = &mut n.children[i];
+            }
+            n.children = kids;
+        }
+    }
+
+    /// [`Session::expand_node`] for every node `sel` passes through, the last one included.
+    fn expand_along(&mut self, sel: &str) {
+        let mut path = if sel.starts_with('/') {
+            vec![]
+        } else {
+            self.cursor.clone()
+        };
+        self.expand_node(&path);
+        for seg in sel.split('/').filter(|s| !s.is_empty() && *s != ".") {
+            if seg == ".." {
+                path.pop();
+                continue;
+            }
+            let Some(i) = Self::child_index(self.node_at(&path), seg) else {
+                return;
+            };
+            path.push(i);
+            self.expand_node(&path);
         }
     }
 
@@ -216,6 +266,12 @@ impl<'a> Session<'a> {
         let verb = words.remove(0);
         if matches!(verb.as_str(), "quit" | "exit" | "q") {
             return Ok(Outcome::Quit);
+        }
+        // Lazy trees: load the children of the node we are in and of every node a selector
+        // argument walks through (`cd a/b`, `ls a`, `cat a/b/c`), before the command looks.
+        self.expand_node(&self.cursor.clone());
+        for w in words.iter().filter(|w| !w.starts_with('-')) {
+            self.expand_along(w);
         }
         let json = take_flag(&mut words, "--json") || self.json;
         let r = self.dispatch(&verb, words);
@@ -461,6 +517,7 @@ impl<'a> Session<'a> {
         self.tree = self.doctor.tree(&self.env, &ctx);
         self.ctx = ctx;
         self.cursor = vec![];
+        self.expanded.clear();
         let sc = if is_scored(&self.env.score) {
             format!(", score {}", self.env.score.value)
         } else {
