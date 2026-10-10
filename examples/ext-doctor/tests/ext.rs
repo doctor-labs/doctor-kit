@@ -209,6 +209,23 @@ mod custom_mcp {
     }
 
     #[test]
+    fn exec_self_error_template() {
+        let (r, _) = session(&[
+            &call(1, "exit7", "{}"),
+            &call(2, "exit7", r#"{"plain":true}"#),
+        ]);
+        assert_eq!(
+            r[0]["result"]["content"][0]["text"], " (exit 7)",
+            "template: stderr + exit suffix"
+        );
+        assert_eq!(
+            r[1]["result"]["content"][0]["text"], "exited with code 7",
+            "default text"
+        );
+        assert_eq!(r[0]["result"]["isError"], true);
+    }
+
+    #[test]
     fn tools_replace_scan_and_fix_and_wire_texts_are_the_tools() {
         let (r, _) = session(&[
             r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26"}}"#,
@@ -224,7 +241,7 @@ mod custom_mcp {
             .iter()
             .map(|t| t["name"].as_str().unwrap())
             .collect();
-        assert_eq!(names, ["inspect", "hang", "flood"]);
+        assert_eq!(names, ["inspect", "exit7", "hang", "flood"]);
         assert_eq!(r[2]["error"]["message"], "method not found");
         assert_eq!(
             r[3]["error"]["message"], "parse error",

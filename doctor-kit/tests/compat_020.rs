@@ -22,3 +22,20 @@ fn output_args_literal_of_0_2_0_still_compiles() {
     };
     assert!(o.headless);
 }
+
+#[test]
+fn mcp_wire_and_exec_opts_literals_of_0_2_0_still_compile() {
+    let w = doctor_kit::McpWire {
+        protocol: doctor_kit::Protocol::EchoClient,
+        parse_error: "p".into(),
+        method_not_found: "m {m}".into(),
+        blank_line_is_parse_error: true,
+    };
+    assert!(w.blank_line_is_parse_error);
+    let o = doctor_kit::mcp::ExecOpts {
+        ok_codes: vec![0, 1],
+        timeout: None,
+        max_bytes: 10,
+    };
+    assert_eq!(o.max_bytes, 10);
+}

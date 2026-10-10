@@ -88,6 +88,16 @@ impl Doctor for Ext {
                 }),
             },
             McpTool {
+                name: "exit7".into(),
+                description: "Exits 7".into(),
+                schema: json!({"type": "object", "properties": {"plain": {"type": "boolean"}}}),
+                call: Box::new(move |a| {
+                    let args = vec!["probe".to_string(), "--code".into(), "7".into()];
+                    let tpl = a.get("plain").is_none().then_some("{stderr} (exit {code})");
+                    doctor_kit::mcp::exec_self_fmt(&args, &ExecOpts::default(), tpl)
+                }),
+            },
+            McpTool {
                 name: "hang".into(),
                 description: "Never returns".into(),
                 schema: json!({"type": "object"}),
