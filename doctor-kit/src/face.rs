@@ -13,6 +13,27 @@ pub enum Face {
     Compact,
 }
 
+/// Categories to group by: `data.categories` when it is an array (the declared display order),
+/// else those of the findings in order of first appearance, so a doctor with free-form `data`
+/// still gets grouped output.
+pub fn categories_of(env: &Envelope) -> Vec<String> {
+    match env.data["categories"].as_array() {
+        Some(a) => a
+            .iter()
+            .filter_map(|c| c.as_str().map(String::from))
+            .collect(),
+        None => {
+            let mut v: Vec<String> = vec![];
+            for f in &env.findings {
+                if !v.contains(&f.category) {
+                    v.push(f.category.clone());
+                }
+            }
+            v
+        }
+    }
+}
+
 pub fn render(face: Face, env: &Envelope, theme: &Theme) -> String {
     match face {
         Face::Plain => plain(env, theme),
@@ -164,15 +185,7 @@ fn rich(env: &Envelope, t: &Theme) -> String {
         Row::new().add(t, "dim", "Score  n/a (this doctor does not score)")
     }));
     rows.push(Some(counts_row(env, t)));
-    let cats: Vec<String> = env.data["categories"]
-        .as_array()
-        .map(|a| {
-            a.iter()
-                .filter_map(|c| c.as_str().map(String::from))
-                .collect()
-        })
-        .unwrap_or_default();
-    for c in cats {
+    for c in categories_of(env) {
         let fs: Vec<_> = env.findings.iter().filter(|f| f.category == c).collect();
         if fs.is_empty() {
             continue;
