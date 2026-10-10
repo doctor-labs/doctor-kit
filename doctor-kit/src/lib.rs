@@ -2,6 +2,7 @@
 //!
 //! A tool implements [`Doctor`] (name, version, categories, checks) and calls [`run`].
 //! Output is a `doctor/1` [`Envelope`] rendered by a [`Face`] in a [`Theme`].
+pub mod baseline;
 pub mod check;
 pub mod cli;
 pub mod config;

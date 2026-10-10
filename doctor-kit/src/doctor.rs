@@ -230,6 +230,20 @@ pub trait Doctor {
     fn is_gap(&self, _f: &Finding) -> bool {
         false
     }
+    /// Largest baseline file `--baseline` reads.
+    fn baseline_max_bytes(&self) -> usize {
+        16 << 20
+    }
+    /// Message for a baseline that could not be loaded. Default: the kit's wording; override to
+    /// keep a tool's existing text byte for byte.
+    fn baseline_message(&self, e: &crate::baseline::BaselineError) -> String {
+        e.to_string()
+    }
+    /// After the baseline is applied: tool-specific refusals (dialect, truncation) or extra data
+    /// (a diff). `saved` is the whole baseline document.
+    fn baseline_hook(&self, _saved: &Value, _env: &mut Envelope) -> Result<(), ScanFailure> {
+        Ok(())
+    }
     /// Serialisation of the envelope on stdout (`--json`, MCP `scan`). Default: pretty, trailing
     /// newline. The kit never changes a finding's fingerprint, whatever the serialisation.
     fn render_json(&self, env: &Envelope) -> String {
