@@ -1,4 +1,78 @@
-# doctor-kit
+<p align="center"><img src="docs/assets/hero.svg" alt="doctor-kit illustration" width="100%"></p>
+
+<h1><img src="docs/assets/logo.svg" width="36" height="36" alt="" align="absmiddle"> doctor-kit</h1>
+
+[![CI](https://github.com/doctor-labs/doctor-kit/actions/workflows/ci.yml/badge.svg)](https://github.com/doctor-labs/doctor-kit/actions/workflows/ci.yml)
+![license MIT](https://img.shields.io/badge/license-MIT-blue)
+![contract doctor/1](https://img.shields.io/badge/contract-doctor%2F1-19c3ab)
+
+**The Rust skeleton for building a doctor: implement a few checks and get a scored `doctor/1` CLI.**
+
+You write the checks; doctor-kit supplies the scan, faces, themes, `doctor.toml`, REPL, TUI and agent integration.
+
+Real output of `example-doctor`, the toy doctor in this repo, on `examples/fixture`
+(`cargo run -p example-doctor -- scan examples/fixture --face plain`):
+
+```text
+example-doctor 0.1.0  score 57/100 critical
+critical  secret.aws-key         notes/deploy.txt:3  AWS access key id in source
+high      secret.password        notes/db.txt:2      Hard-coded password
+medium    size.large-file        notes/log-dump.txt  File larger than 4 KiB
+low       hygiene.todo           notes/deploy.txt:4  Unresolved TODO/FIXME
+low       hygiene.todo           notes/db.txt:3      Unresolved TODO/FIXME
+low       hygiene.todo           src/todo.txt:2      Unresolved TODO/FIXME
+low       hygiene.todo           src/todo.txt:3      Unresolved TODO/FIXME
+info      docs.no-readme         .                   No README at the root
+1 critical · 1 high · 1 medium · 4 low · 1 info
+```
+
+## Install
+
+Not on crates.io yet (crates.io release 0.1.0 coming). Until then, depend on the git repo:
+
+```toml
+[dependencies]
+doctor-kit = { git = "https://github.com/doctor-labs/doctor-kit" }
+# optional features: repl (shell), tui (explore), mcp (mcp)
+```
+
+Or start a new doctor from the template: `cargo generate doctor-labs/doctor-template`.
+
+## Use
+
+Implement `Doctor` and `Check`, then hand the doctor to `doctor_kit::run`:
+
+```rust
+use doctor_kit::doctor_core::Severity;
+use doctor_kit::{finding, Check, CheckResult, Ctx, Doctor};
+
+struct NoReadme;
+impl Check for NoReadme {
+    fn id(&self) -> &'static str { "docs.no-readme" }
+    fn category(&self) -> &'static str { "docs" }
+    fn run(&self, ctx: &Ctx) -> CheckResult {
+        let has = ctx.files.iter().any(|f| f.to_string_lossy().to_lowercase().starts_with("readme"));
+        if has { return CheckResult::ok(); }
+        CheckResult::findings(vec![finding(
+            self.id(), "docs", Severity::Info, "No README at the root", std::path::Path::new("."), None,
+        )])
+    }
+}
+
+struct Mine;
+impl Doctor for Mine {
+    fn name(&self) -> &str { "mine" }
+    fn version(&self) -> &str { env!("CARGO_PKG_VERSION") }
+    fn categories(&self) -> Vec<&'static str> { vec!["docs"] }
+    fn checks(&self) -> Vec<Box<dyn Check>> { vec![Box::new(NoReadme)] }
+}
+
+fn main() -> std::process::ExitCode { doctor_kit::run(Mine) }
+```
+
+A fuller doctor is `examples/example-doctor/src/main.rs`.
+
+## Details
 
 Reusable skeleton for "doctor" CLI tools. Output is the `doctor/1` envelope from
 [doctor-core](https://crates.io/crates/doctor-core).
@@ -30,3 +104,7 @@ Interactive layer (shared by `shell` and `explore`, both over one `Session`):
 - REPL tab-completes verbs, children, actions and flags. TUI keys: `hjkl`/arrows, enter, backspace, `/` filter,
   `:` command line, `d` decode, `w` why, `x` export, tab switches tree/findings focus, `q`.
 - `scan --sarif <path>`; a panicking check becomes a `<check>.panic` finding and the scan continues.
+
+---
+
+Part of [doctor·labs](https://github.com/doctor-labs) — offline security doctors.

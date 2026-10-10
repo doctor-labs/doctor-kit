@@ -5,6 +5,10 @@ edition = "2021"
 description = "Reusable runtime for doctor CLI tools: checks, score, faces, themes, REPL, TUI"
 license = "MIT"
 repository = "https://github.com/doctor-labs/doctor-kit"
+readme = "../README.md"
+keywords = ["doctor", "cli", "diagnostics", "security", "lint"]
+categories = ["command-line-utilities", "development-tools"]
+include = ["src/**", "tests/**", "Cargo.toml", "LICENSE"]
 
 [features]
 default = []
