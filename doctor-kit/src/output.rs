@@ -70,6 +70,9 @@ pub struct OutputArgs {
     pub fail_on: Severity,
     /// Where an implicit `theme.toml` is looked for. `None` (tools' own commands) = nowhere.
     pub theme_root: Option<PathBuf>,
+    /// Findings never fail this command: exit 0 whatever their severity, with or without a baseline
+    /// (a report-only command such as an audit). `fail_on` is then unused. See [`OutputArgs::never_fail`].
+    pub never_fail: bool,
 }
 
 impl OutputArgs {
@@ -132,7 +135,14 @@ impl OutputArgs {
                 .copied()
                 .unwrap_or_else(|| d.default_fail_on()),
             theme_root: None,
+            never_fail: false,
         }
+    }
+
+    /// Make findings never fail this command (exit 0): a per-command default for report-only commands.
+    pub fn never_fail(mut self) -> Self {
+        self.never_fail = true;
+        self
     }
 }
 
@@ -213,7 +223,7 @@ fn theme_of(d: &dyn Doctor, o: &OutputArgs) -> Result<Theme, String> {
 ///
 /// On `Err`: print the failure ([`report_failure`]). On `Ok`: apply the baseline (and
 /// [`Doctor::baseline_hook`]), set `env.exit_code` to the process exit code ([`baseline::gate`]:
-/// 0, 1, or 3 under a baseline), write SARIF if asked (atomic; a write failure still prints the
+/// 0, 1, or 3 under a baseline; always 0 with `never_fail`), write SARIF if asked (atomic; a write failure still prints the
 /// report and exits 2), then write the report to stdout once.
 pub fn finish(
     d: &dyn Doctor,
@@ -231,7 +241,11 @@ pub fn finish(
             return report_failure(d, &f);
         }
     }
-    let mut code = baseline::gate(d, &env, o.fail_on, pre.saved.is_some());
+    let mut code = if o.never_fail {
+        0
+    } else {
+        baseline::gate(d, &env, o.fail_on, pre.saved.is_some())
+    };
     env.exit_code = code;
     if let Some(p) = &o.sarif {
         if let Err(e) = write_atomic(p, &d.render_sarif(&env)) {
@@ -253,7 +267,12 @@ pub fn finish(
     } else {
         let face = if o.headless { Face::Plain } else { o.face };
         match theme_of(d, o) {
-            Ok(t) => render(face, &env, &t),
+            Ok(t) => {
+                // The tool's own report gets the same sanitized copy the kit faces get.
+                let safe = crate::face::sanitize_envelope(&env);
+                d.render_human(&safe, &face, &t)
+                    .unwrap_or_else(|| render(face, &env, &t))
+            }
             Err(e) => {
                 eprintln!("error: {e}");
                 return 2;
