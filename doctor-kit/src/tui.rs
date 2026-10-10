@@ -243,7 +243,7 @@ fn draw(f: &mut Frame, app: &App) {
         .iter()
         .map(|n| ListItem::new(format!("{} {}", n.name, n.summary)))
         .collect();
-    let mut st = ListState::default().with_selected(Some(app.sel).filter(|_| !entries.is_empty()));
+    let mut st = ListState::default().with_selected((!entries.is_empty()).then_some(app.sel));
     let title = if app.filter.is_empty() {
         app.s.pwd()
     } else {
@@ -290,7 +290,7 @@ fn draw(f: &mut Frame, app: &App) {
             ))
         })
         .collect();
-    let mut fs = ListState::default().with_selected(Some(app.fsel).filter(|_| !idx.is_empty()));
+    let mut fs = ListState::default().with_selected((!idx.is_empty()).then_some(app.fsel));
     f.render_stateful_widget(
         List::new(rows)
             .block(Block::bordered().title(focus("findings", app.findings_focus)))
