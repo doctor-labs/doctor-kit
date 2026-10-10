@@ -24,3 +24,29 @@ jobs:
           cargo build -p example-doctor --no-default-features --features mcp
           cargo build -p example-doctor --no-default-features
           cargo build -p example-doctor --all-features
+  # Compatibility test for current users: a project generated from doctor-template (which pins
+  # doctor-kit 0.1) must keep building and passing against this checkout.
+  template:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: kit
+      - uses: actions/checkout@v4
+        with:
+          repository: doctor-labs/doctor-template
+          path: tpl
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: gen
+      - name: Instantiate the template against this kit
+        run: |
+          cp -r tpl/template gen
+          rm -f gen/cargo-generate.toml gen/pre.rhai
+          grep -rl '{{' gen | xargs sed -i \
+            -e 's/{{project-name}}/tpl-doctor/g' -e 's/{{bin_name}}/tpl-doctor/g' \
+            -e 's/{{description}}/template check/g' -e 's/{{domain}}/files/g' \
+            -e 's/{{author}}/ci <ci@example.com>/g'
+          printf '\n[patch.crates-io]\ndoctor-kit = { path = "../kit/doctor-kit" }\n' >> gen/Cargo.toml
+      - run: cargo test --manifest-path gen/Cargo.toml

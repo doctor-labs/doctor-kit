@@ -1,0 +1,15 @@
+exit: 0
+--- stdout ---
+secrets        category  2 findings
+hygiene        category  4 findings
+size           category  1 findings
+docs           category  1 findings
+files          dir       5 files
+1              finding   critical  secret.aws-key         notes/deploy.txt:3
+2              finding   high      secret.password        notes/db.txt:2
+secrets        category  2 findings
+hygiene        category  4 findings
+size           category  1 findings
+docs           category  1 findings
+files          dir       5 files
+--- stderr ---

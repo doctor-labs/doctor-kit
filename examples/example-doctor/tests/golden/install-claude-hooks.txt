@@ -1,0 +1,44 @@
+exit: 0
+--- stdout ---
+wrote <TMP>/.claude/skills/example-doctor/SKILL.md
+wrote <TMP>/.claude/settings.json
+--- stderr ---
+=== .claude/settings.json ===
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "command": "example-doctor scan --scope changed --headless --fail-on high >&2 || exit 2",
+            "type": "command"
+          }
+        ],
+        "matcher": "Edit|Write|MultiEdit"
+      }
+    ]
+  }
+}
+
+=== .claude/skills/example-doctor/SKILL.md ===
+---
+name: example-doctor
+description: Run `example-doctor` to scan this project and fix what it reports.
+---
+
+# example-doctor
+
+`example-doctor` scans a target and reports findings. Run it; do not guess.
+
+```sh
+example-doctor scan --json                  # one doctor/1 JSON envelope on stdout
+example-doctor scan --scope changed --headless   # only files changed in git (PR mode)
+example-doctor fix [<finding-id>]           # a prompt to hand to a coding agent
+example-doctor mcp                          # the same scan as an MCP stdio server
+```
+
+Categories: secrets, hygiene, size, docs.
+
+Envelope: `schema` is `doctor/1`; `findings[]` hold `id`, `severity`, `location`, `message`,
+`evidence`, `remedy`; `score.value` is 0-100. Exit code 0 = clean, 1 = findings at or above
+`--fail-on` (default high), 2 = the tool failed. Fix at the source, then re-run the scan.

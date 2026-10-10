@@ -1,0 +1,223 @@
+exit: 1
+--- stdout ---
+57
+--- stderr ---
+--- sarif file ---
+{
+  "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+  "runs": [
+    {
+      "properties": {
+        "score": {
+          "coverage_gaps": 0,
+          "label": "critical",
+          "model": "doctor-kit/1",
+          "value": 57
+        }
+      },
+      "results": [
+        {
+          "level": "error",
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "notes/deploy.txt"
+                },
+                "region": {
+                  "startLine": 3
+                }
+              }
+            }
+          ],
+          "message": {
+            "text": "AWS access key id in source"
+          },
+          "partialFingerprints": {
+            "doctorFinding/v1": "0e8718864ec047bb"
+          },
+          "ruleId": "secret.aws-key"
+        },
+        {
+          "level": "error",
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "notes/db.txt"
+                },
+                "region": {
+                  "startLine": 2
+                }
+              }
+            }
+          ],
+          "message": {
+            "text": "Hard-coded password"
+          },
+          "partialFingerprints": {
+            "doctorFinding/v1": "07cfde164ba71f3f"
+          },
+          "ruleId": "secret.password"
+        },
+        {
+          "level": "warning",
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "notes/log-dump.txt"
+                },
+                "region": {
+                  "startLine": 1
+                }
+              }
+            }
+          ],
+          "message": {
+            "text": "File larger than 4 KiB"
+          },
+          "partialFingerprints": {
+            "doctorFinding/v1": "0849ed5d4132e3cd"
+          },
+          "ruleId": "size.large-file"
+        },
+        {
+          "level": "note",
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "notes/deploy.txt"
+                },
+                "region": {
+                  "startLine": 4
+                }
+              }
+            }
+          ],
+          "message": {
+            "text": "Unresolved TODO/FIXME"
+          },
+          "partialFingerprints": {
+            "doctorFinding/v1": "0398619d652c540a"
+          },
+          "ruleId": "hygiene.todo"
+        },
+        {
+          "level": "note",
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "notes/db.txt"
+                },
+                "region": {
+                  "startLine": 3
+                }
+              }
+            }
+          ],
+          "message": {
+            "text": "Unresolved TODO/FIXME"
+          },
+          "partialFingerprints": {
+            "doctorFinding/v1": "33bf7685fef0c103"
+          },
+          "ruleId": "hygiene.todo"
+        },
+        {
+          "level": "note",
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "src/todo.txt"
+                },
+                "region": {
+                  "startLine": 2
+                }
+              }
+            }
+          ],
+          "message": {
+            "text": "Unresolved TODO/FIXME"
+          },
+          "partialFingerprints": {
+            "doctorFinding/v1": "c77e84b5fac99ddc"
+          },
+          "ruleId": "hygiene.todo"
+        },
+        {
+          "level": "note",
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "src/todo.txt"
+                },
+                "region": {
+                  "startLine": 3
+                }
+              }
+            }
+          ],
+          "message": {
+            "text": "Unresolved TODO/FIXME"
+          },
+          "partialFingerprints": {
+            "doctorFinding/v1": "cde142faaba3697f"
+          },
+          "ruleId": "hygiene.todo"
+        },
+        {
+          "level": "note",
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "."
+                },
+                "region": {
+                  "startLine": 1
+                }
+              }
+            }
+          ],
+          "message": {
+            "text": "No README at the root"
+          },
+          "partialFingerprints": {
+            "doctorFinding/v1": "a96c7280f1db9a0d"
+          },
+          "ruleId": "docs.no-readme"
+        }
+      ],
+      "tool": {
+        "driver": {
+          "informationUri": "https://github.com/doctor-labs/doctor-kit",
+          "name": "example-doctor",
+          "rules": [
+            {
+              "id": "secret.aws-key"
+            },
+            {
+              "id": "secret.password"
+            },
+            {
+              "id": "size.large-file"
+            },
+            {
+              "id": "hygiene.todo"
+            },
+            {
+              "id": "docs.no-readme"
+            }
+          ],
+          "version": "0.1.0"
+        }
+      }
+    }
+  ],
+  "version": "2.1.0"
+}
