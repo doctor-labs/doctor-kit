@@ -98,6 +98,38 @@ impl Doctor for Ext {
                 }),
             },
             McpTool {
+                name: "describe".into(),
+                description: "Describes how a run failed".into(),
+                schema: json!({"type": "object", "properties": {"hang": {"type": "boolean"}}}),
+                call: Box::new(move |a| {
+                    let hang = a.get("hang").is_some();
+                    let (args, o) = if hang {
+                        (
+                            vec!["wait".to_string()],
+                            ExecOpts {
+                                timeout: Some(std::time::Duration::from_millis(300)),
+                                ..Default::default()
+                            },
+                        )
+                    } else {
+                        (
+                            vec!["probe".to_string(), "--code".into(), "7".into()],
+                            ExecOpts::default(),
+                        )
+                    };
+                    doctor_kit::mcp::exec_self_with(&args, &o, |f| {
+                        format!(
+                            "{:?} code={:?} signal={:?} stdout={:?} stderr={:?}",
+                            f.kind,
+                            f.code,
+                            f.signal,
+                            f.stdout.trim(),
+                            f.stderr.trim()
+                        )
+                    })
+                }),
+            },
+            McpTool {
                 name: "hang".into(),
                 description: "Never returns".into(),
                 schema: json!({"type": "object"}),

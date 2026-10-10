@@ -87,6 +87,39 @@ impl Default for McpWire {
     }
 }
 
+/// Fill `{key}` in `template`, plus `{key_json}` (a JSON string literal, quotes included) and
+/// `{key_esc}` (JSON-escaped, no quotes) so a name containing quotes still yields valid JSON text.
+pub fn fill(template: &str, key: &str, value: &str) -> String {
+    let json = serde_json::to_string(value).unwrap_or_default();
+    let esc = json[1..json.len().saturating_sub(1)].to_string();
+    let (plain, j, e) = (
+        format!("{{{key}}}"),
+        format!("{{{key}_json}}"),
+        format!("{{{key}_esc}}"),
+    );
+    // One pass, so a value that itself contains `{t}` is not substituted again.
+    let (mut out, mut rest) = (String::new(), template);
+    while let Some(i) = rest.find('{') {
+        out.push_str(&rest[..i]);
+        rest = &rest[i..];
+        if let Some(r) = rest.strip_prefix(j.as_str()) {
+            out.push_str(&json);
+            rest = r;
+        } else if let Some(r) = rest.strip_prefix(e.as_str()) {
+            out.push_str(&esc);
+            rest = r;
+        } else if let Some(r) = rest.strip_prefix(plain.as_str()) {
+            out.push_str(value);
+            rest = r;
+        } else {
+            out.push('{');
+            rest = &rest[1..];
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
 /// Limits for [`exec_self`].
 #[derive(Debug, Clone)]
 pub struct ExecOpts {
@@ -107,11 +140,67 @@ impl Default for ExecOpts {
     }
 }
 
+/// Why [`exec_self_with`] did not produce a result.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExecFailureKind {
+    /// The executable could not be found or started.
+    Spawn,
+    /// Exited with a code that is not in `ok_codes`.
+    Exit,
+    /// Killed by a signal it did not handle (`signal` is set when known).
+    Signal,
+    /// Killed after `ExecOpts::timeout`.
+    Timeout,
+    /// Killed because stdout or stderr passed `ExecOpts::max_bytes`.
+    OutputLimit,
+}
+
+/// Everything known about a failed [`exec_self_with`] run, for a tool to word its error.
+#[derive(Debug, Clone)]
+pub struct ExecFailure {
+    pub kind: ExecFailureKind,
+    /// What the child wrote to stdout before it ended (lossy UTF-8, capped at `max_bytes`).
+    pub stdout: String,
+    /// What it wrote to stderr (lossy UTF-8, NOT trimmed).
+    pub stderr: String,
+    /// Exit code, when it exited.
+    pub code: Option<i32>,
+    /// Terminating signal number (unix), when it was killed.
+    pub signal: Option<i32>,
+    /// The `ExecOpts` limits that applied.
+    pub timeout: Option<Duration>,
+    pub max_bytes: usize,
+    /// Text of the failed spawn (`Spawn` only).
+    pub detail: String,
+}
+
+impl ExecFailure {
+    /// The kit's own wording (what [`exec_self`] returns).
+    pub fn default_text(&self) -> String {
+        match self.kind {
+            ExecFailureKind::Spawn => self.detail.clone(),
+            ExecFailureKind::OutputLimit => format!("output exceeded {} bytes", self.max_bytes),
+            ExecFailureKind::Timeout => format!(
+                "timed out after {}s",
+                self.timeout.map_or(0, |t| t.as_secs())
+            ),
+            ExecFailureKind::Signal => "terminated by a signal".into(),
+            ExecFailureKind::Exit => {
+                let e = self.stderr.trim();
+                match self.code {
+                    Some(c) if e.is_empty() => format!("exited with code {c}"),
+                    _ => e.to_string(),
+                }
+            }
+        }
+    }
+}
+
 /// Run this very executable with `args` and return its stdout: how an MCP tool "runs the CLI's
 /// own path with --json". Stdin is closed. A listed exit code gives `Ok(stdout)`; any other exit,
 /// a timeout or an oversized output gives `Err` (stderr text when there is some).
 pub fn exec_self(args: &[String], o: &ExecOpts) -> Result<String, String> {
-    exec_self_fmt(args, o, None)
+    exec_self_with(args, o, ExecFailure::default_text)
 }
 
 /// [`exec_self`] with a template for the `Err` of an exit code not in `ok_codes`: `{stderr}` is
@@ -121,17 +210,48 @@ pub fn exec_self_fmt(
     o: &ExecOpts,
     error_template: Option<&str>,
 ) -> Result<String, String> {
+    exec_self_with(args, o, |f| match (error_template, f.kind, f.code) {
+        (Some(t), ExecFailureKind::Exit, Some(c)) => t
+            .replace("{stderr}", f.stderr.trim())
+            .replace("{code}", &c.to_string()),
+        _ => f.default_text(),
+    })
+}
+
+/// [`exec_self`] where the tool words every error itself: `fmt` gets an [`ExecFailure`] (kind,
+/// stdout, stderr, code, signal, limits) and returns the `Err` text.
+pub fn exec_self_with(
+    args: &[String],
+    o: &ExecOpts,
+    fmt: impl Fn(&ExecFailure) -> String,
+) -> Result<String, String> {
+    exec_core(args, o).map_err(|f| fmt(&f))
+}
+
+fn exec_core(args: &[String], o: &ExecOpts) -> Result<String, ExecFailure> {
     use std::process::{Command, Stdio};
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::Arc;
-    let exe = std::env::current_exe().map_err(|e| format!("cannot find own executable: {e}"))?;
+    let fail = |kind, stdout: &[u8], stderr: &[u8], code, signal, detail: String| ExecFailure {
+        kind,
+        stdout: String::from_utf8_lossy(stdout).into_owned(),
+        stderr: String::from_utf8_lossy(stderr).into_owned(),
+        code,
+        signal,
+        timeout: o.timeout,
+        max_bytes: o.max_bytes,
+        detail,
+    };
+    let spawn_fail = |m: String| fail(ExecFailureKind::Spawn, b"", b"", None, None, m);
+    let exe = std::env::current_exe()
+        .map_err(|e| spawn_fail(format!("cannot find own executable: {e}")))?;
     let mut child = Command::new(exe)
         .args(args)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .map_err(|e| format!("cannot start: {e}"))?;
+        .map_err(|e| spawn_fail(format!("cannot start: {e}")))?;
     let over = Arc::new(AtomicBool::new(false));
     let drain = |mut r: Box<dyn Read + Send>| {
         let (over, max) = (over.clone(), o.max_bytes);
@@ -154,19 +274,21 @@ pub fn exec_self_fmt(
     let out = drain(Box::new(child.stdout.take().unwrap()));
     let err = drain(Box::new(child.stderr.take().unwrap()));
     let start = std::time::Instant::now();
+    let mut killed = None;
     let status = loop {
-        if let Some(st) = child.try_wait().map_err(|e| e.to_string())? {
-            break st;
+        match child.try_wait() {
+            Ok(Some(st)) => break st,
+            Ok(None) => {}
+            Err(e) => return Err(spawn_fail(e.to_string())),
         }
         if over.load(Ordering::SeqCst) {
-            let _ = child.kill();
-            let _ = child.wait();
-            return Err(format!("output exceeded {} bytes", o.max_bytes));
+            killed = Some(ExecFailureKind::OutputLimit);
+        } else if o.timeout.is_some_and(|t| start.elapsed() >= t) {
+            killed = Some(ExecFailureKind::Timeout);
         }
-        if o.timeout.is_some_and(|t| start.elapsed() >= t) {
+        if killed.is_some() {
             let _ = child.kill();
-            let _ = child.wait();
-            return Err(format!("timed out after {}s", o.timeout.unwrap().as_secs()));
+            break child.wait().map_err(|e| spawn_fail(e.to_string()))?;
         }
         std::thread::sleep(Duration::from_millis(10));
     };
@@ -174,20 +296,44 @@ pub fn exec_self_fmt(
         out.join().unwrap_or_default(),
         err.join().unwrap_or_default(),
     );
+    #[cfg(unix)]
+    let signal = {
+        use std::os::unix::process::ExitStatusExt;
+        status.signal()
+    };
+    #[cfg(not(unix))]
+    let signal = None;
+    if let Some(kind) = killed {
+        return Err(fail(kind, &out, &err, status.code(), signal, String::new()));
+    }
     if over.load(Ordering::SeqCst) {
-        return Err(format!("output exceeded {} bytes", o.max_bytes));
+        return Err(fail(
+            ExecFailureKind::OutputLimit,
+            &out,
+            &err,
+            status.code(),
+            signal,
+            String::new(),
+        ));
     }
     match status.code() {
         Some(c) if o.ok_codes.contains(&c) => Ok(String::from_utf8_lossy(&out).into_owned()),
-        Some(c) => {
-            let e = String::from_utf8_lossy(&err).trim().to_string();
-            Err(match error_template {
-                Some(t) => t.replace("{stderr}", &e).replace("{code}", &c.to_string()),
-                None if e.is_empty() => format!("exited with code {c}"),
-                None => e,
-            })
-        }
-        None => Err("terminated by a signal".into()),
+        Some(c) => Err(fail(
+            ExecFailureKind::Exit,
+            &out,
+            &err,
+            Some(c),
+            None,
+            String::new(),
+        )),
+        None => Err(fail(
+            ExecFailureKind::Signal,
+            &out,
+            &err,
+            None,
+            signal,
+            String::new(),
+        )),
     }
 }
 
@@ -259,8 +405,8 @@ fn opts_of(d: &dyn Doctor, args: &Value) -> Result<(String, Opts), String> {
 fn call(d: &dyn Doctor, name: &str, args: &Value) -> Result<String, String> {
     if let Some(tools) = d.mcp_tools() {
         return match tools.iter().find(|t| t.name == name) {
-            Some(t) => (t.call)(args).map_err(|e| d.mcp_texts().tool_error.replace("{e}", &e)),
-            None => Err(d.mcp_texts().unknown_tool.replace("{t}", name)),
+            Some(t) => (t.call)(args).map_err(|e| fill(&d.mcp_texts().tool_error, "e", &e)),
+            None => Err(fill(&d.mcp_texts().unknown_tool, "t", name)),
         };
     }
     let (path, opts) = opts_of(d, args)?;
@@ -273,7 +419,7 @@ fn call(d: &dyn Doctor, name: &str, args: &Value) -> Result<String, String> {
             let hits = fix::select(&env, args.get("id").and_then(Value::as_str))?;
             Ok(d.fix_prompt(&env, &hits))
         }
-        o => Err(d.mcp_texts().unknown_tool.replace("{t}", o)),
+        o => Err(fill(&d.mcp_texts().unknown_tool, "t", o)),
     }
 }
 
@@ -289,7 +435,10 @@ pub fn handle(d: &dyn Doctor, req: &Value) -> Option<Value> {
         return Some(error(Value::Null, -32600, &texts.invalid_request));
     };
     let id = match obj.get("id") {
-        None => return None,
+        // A notification (a method, no id) gets no answer. Neither an id nor a string method is
+        // an invalid request (JSON-RPC 2.0): -32600 with a null id.
+        None if obj.get("method").is_some_and(Value::is_string) => return None,
+        None => return Some(error(Value::Null, -32600, &texts.invalid_request_method)),
         Some(v) if v.is_string() || v.is_i64() || v.is_u64() => v.clone(),
         Some(_) => return Some(error(Value::Null, -32600, &texts.invalid_request_id)),
     };
@@ -324,7 +473,7 @@ pub fn handle(d: &dyn Doctor, req: &Value) -> Option<Value> {
             };
             json!({"content": [{"type": "text", "text": text}], "isError": is_error})
         }
-        Some(m) => return Some(error(id, -32601, &wire.method_not_found.replace("{m}", m))),
+        Some(m) => return Some(error(id, -32601, &fill(&wire.method_not_found, "m", m))),
     };
     Some(json!({"jsonrpc": "2.0", "id": id, "result": result}))
 }
@@ -339,7 +488,7 @@ pub fn process_line(d: &dyn Doctor, line: &[u8]) -> Option<Value> {
         Err(e) => Some(error(
             Value::Null,
             -32700,
-            &wire.parse_error.replace("{e}", &e.to_string()),
+            &fill(&wire.parse_error, "e", &e.to_string()),
         )),
     }
 }

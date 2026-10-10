@@ -234,3 +234,93 @@ mod texts {
         );
     }
 }
+
+mod invalid_and_json {
+    use super::*;
+    use doctor_kit::mcp::fill;
+    use doctor_kit::McpTexts;
+
+    #[test]
+    fn notification_stays_silent_but_no_id_and_no_method_is_an_invalid_request() {
+        let d = Own(false);
+        // method, no id: a notification, no answer
+        assert!(handle(
+            &d,
+            &json!({"jsonrpc": "2.0", "method": "notifications/initialized"})
+        )
+        .is_none());
+        assert!(process_line(&d, br#"{"jsonrpc":"2.0","method":"x"}"#).is_none());
+        // neither: -32600 with id null
+        for bad in [
+            json!({"jsonrpc": "2.0"}),
+            json!({}),
+            json!({"method": 7}),
+            json!({"jsonrpc":"2.0","params":{}}),
+        ] {
+            let r = handle(&d, &bad).unwrap_or_else(|| panic!("silence for {bad}"));
+            assert_eq!(
+                (r["error"]["code"].as_i64(), r["id"].clone()),
+                (Some(-32600), Value::Null),
+                "{bad}"
+            );
+        }
+        // an id with no method is still answered with that id (unchanged)
+        let r = handle(&d, &json!({"jsonrpc": "2.0", "id": 5})).unwrap();
+        assert_eq!(
+            (r["error"]["code"].as_i64(), r["id"].clone()),
+            (Some(-32600), json!(5))
+        );
+        // not an object, as before
+        assert_eq!(handle(&d, &json!([1])).unwrap()["error"]["code"], -32600);
+    }
+
+    #[test]
+    fn fill_gives_plain_json_literal_and_escaped_forms_in_one_pass() {
+        let name = r#"a"b\c{t}"#;
+        assert_eq!(fill("x {t}", "t", name), format!("x {name}"));
+        assert_eq!(fill("{t_json}", "t", name), r#""a\"b\\c{t}""#);
+        assert_eq!(fill("{t_esc}", "t", name), r#"a\"b\\c{t}"#);
+        assert_eq!(
+            fill("{e} {t}", "t", "v"),
+            "{e} v",
+            "other keys and stray braces are left alone"
+        );
+        let doc = fill(r#"{"error":"unknown tool {t_esc}"}"#, "t", name);
+        let v: Value = serde_json::from_str(&doc).unwrap();
+        assert_eq!(v["error"], format!("unknown tool {name}"));
+    }
+
+    #[test]
+    fn unknown_tool_with_quotes_yields_valid_json_through_the_wire() {
+        struct J;
+        impl Doctor for J {
+            fn name(&self) -> &str {
+                "j"
+            }
+            fn version(&self) -> &str {
+                "1"
+            }
+            fn categories(&self) -> Vec<&'static str> {
+                vec![]
+            }
+            fn checks(&self) -> Vec<Box<dyn Check>> {
+                vec![]
+            }
+            fn mcp_tools(&self) -> Option<Vec<McpTool>> {
+                Some(vec![])
+            }
+            fn mcp_texts(&self) -> McpTexts {
+                McpTexts {
+                    unknown_tool: r#"{"error":{t_json}}"#.into(),
+                    ..McpTexts::default()
+                }
+            }
+        }
+        let r = handle(&J, &req("tools/call", json!({"name": "ev\"il"}))).unwrap();
+        let text = r["result"]["content"][0]["text"].as_str().unwrap();
+        assert_eq!(
+            serde_json::from_str::<Value>(text).unwrap(),
+            json!({"error": "ev\"il"})
+        );
+    }
+}
