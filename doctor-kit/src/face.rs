@@ -34,7 +34,29 @@ pub fn categories_of(env: &Envelope) -> Vec<String> {
     }
 }
 
+/// A copy of `env` safe to show a human (contract section 8): control, escape, bidi and
+/// zero-width characters are removed from every finding text that can come from scanned input
+/// (id, category, message, location, evidence, remedy). Findings, fingerprints and `data` are
+/// otherwise untouched; machine output (`--json`, SARIF) is never passed through this.
+pub fn sanitize_envelope(env: &Envelope) -> Envelope {
+    use doctor_core::sanitize;
+    let mut e = env.clone();
+    for f in &mut e.findings {
+        f.id = sanitize(&f.id);
+        f.category = sanitize(&f.category);
+        f.message = sanitize(&f.message);
+        f.location.reference = sanitize(&f.location.reference);
+        for ev in &mut f.evidence {
+            ev.reference = sanitize(&ev.reference);
+            ev.value = sanitize(&ev.value);
+        }
+        f.remedy = f.remedy.as_deref().map(sanitize);
+    }
+    e
+}
+
 pub fn render(face: Face, env: &Envelope, theme: &Theme) -> String {
+    let env = &sanitize_envelope(env);
     match face {
         Face::Plain => plain(env, theme),
         Face::Rich => rich(env, theme),

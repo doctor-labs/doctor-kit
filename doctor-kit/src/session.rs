@@ -105,7 +105,7 @@ fn show(v: &Value) -> String {
 
 impl<'a> Session<'a> {
     pub fn new(doctor: &'a dyn Doctor, ctx: Ctx) -> Session<'a> {
-        let env = doctor.scan(&ctx);
+        let env = crate::face::sanitize_envelope(&doctor.scan(&ctx));
         let tree = doctor.tree(&env, &ctx);
         Session {
             doctor,
@@ -457,7 +457,7 @@ impl<'a> Session<'a> {
             )
             .map_err(|e| e.to_string())?
         };
-        self.env = self.doctor.scan(&ctx);
+        self.env = crate::face::sanitize_envelope(&self.doctor.scan(&ctx));
         self.tree = self.doctor.tree(&self.env, &ctx);
         self.ctx = ctx;
         self.cursor = vec![];
