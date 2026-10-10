@@ -7,7 +7,7 @@ use crate::face::{render, Face};
 use crate::install::Agent;
 use crate::theme::Theme;
 use clap::{Args, CommandFactory, FromArgMatches, Parser, Subcommand, ValueEnum};
-use doctor_core::{Envelope, Severity};
+use doctor_core::Severity;
 use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -183,13 +183,19 @@ pub(crate) fn ctx_from(path: &Path, o: &Opts) -> Result<Ctx, String> {
         .map_err(|e| format!("{}: {e}", path.display()))
 }
 
-/// The exact text `scan --json` prints (also the MCP `scan` result).
-pub(crate) fn envelope_text(env: &Envelope) -> String {
-    serde_json::to_string_pretty(env).unwrap() + "\n"
+/// Print a failed scan: the envelope on stdout when there is one, then stderr verbatim.
+pub(crate) fn report_failure(d: &dyn Doctor, f: &crate::doctor::ScanFailure) -> u8 {
+    if let Some(env) = &f.envelope {
+        print!("{}", d.render_json(env));
+    }
+    eprint!("{}", f.stderr);
+    f.exit
 }
 
 fn fix(d: &dyn Doctor, a: FixArgs) -> Result<u8, String> {
-    let env = d.scan(&ctx_from(&a.path, &a.opts)?);
+    let env = d
+        .try_scan(&ctx_from(&a.path, &a.opts)?)
+        .map_err(|f| f.to_string())?;
     let hits = crate::fix::select(&env, a.id.as_deref())?;
     if hits.is_empty() {
         eprintln!("nothing to fix");
@@ -249,14 +255,17 @@ fn theme_of(base: Theme, a: &ScanArgs) -> Result<Theme, String> {
 
 fn scan(d: &dyn Doctor, a: ScanArgs) -> Result<u8, String> {
     let ctx = ctx_of(&a.target)?;
-    let env = d.scan(&ctx);
+    let env = match d.try_scan(&ctx) {
+        Ok(e) => e,
+        Err(f) => return Ok(report_failure(d, &f)),
+    };
     if let Some(p) = &a.sarif {
         let v = crate::session::to_sarif(&env);
         std::fs::write(p, serde_json::to_string_pretty(&v).unwrap() + "\n")
             .map_err(|e| format!("{}: {e}", p.display()))?;
     }
     if a.json {
-        print!("{}", envelope_text(&env));
+        print!("{}", d.render_json(&env));
     } else if a.score {
         println!(
             "{}",
@@ -274,11 +283,24 @@ fn scan(d: &dyn Doctor, a: ScanArgs) -> Result<u8, String> {
 }
 
 fn command_for<D: Doctor>(d: &D) -> clap::Command {
-    Cli::command()
+    let default_fail_on = d.default_fail_on();
+    let mut cmd = Cli::command()
         .name(d.name().to_string())
         .bin_name(d.name().to_string())
         .version(d.version().to_string())
-        .about(d.about().to_string())
+        .about(d.about().to_string());
+    // `--fail-on` defaults to the doctor's own severity (help shows it too).
+    let names: Vec<String> = cmd
+        .get_subcommands()
+        .filter(|c| c.get_arguments().any(|a| a.get_id() == "fail_on"))
+        .map(|c| c.get_name().to_string())
+        .collect();
+    for n in names {
+        cmd = cmd.mut_subcommand(n, |c| {
+            c.mut_arg("fail_on", |a| a.default_value(default_fail_on.as_str()))
+        });
+    }
+    cmd
 }
 
 pub fn run<D: Doctor>(doctor: D) -> ExitCode {
@@ -344,5 +366,49 @@ mod tests {
         );
         assert!(!help.contains("Reusable runtime"), "{help}");
         assert_eq!(cmd.render_version().trim(), "foo-doctor 9.9.9");
+    }
+
+    struct Strict;
+    impl Doctor for Strict {
+        fn name(&self) -> &str {
+            "strict-doctor"
+        }
+        fn version(&self) -> &str {
+            "1"
+        }
+        fn categories(&self) -> Vec<&'static str> {
+            vec![]
+        }
+        fn checks(&self) -> Vec<Box<dyn crate::check::Check>> {
+            vec![]
+        }
+        fn default_fail_on(&self) -> Severity {
+            Severity::Critical
+        }
+    }
+
+    #[test]
+    fn fail_on_default_is_the_doctors_on_every_command() {
+        let cmd = command_for(&Strict);
+        for sub in ["scan", "fix"] {
+            let help = cmd
+                .clone()
+                .find_subcommand_mut(sub)
+                .unwrap()
+                .render_help()
+                .to_string();
+            assert!(help.contains("[default: critical]"), "{sub}: {help}");
+        }
+        let help = command_for(&Named)
+            .find_subcommand_mut("scan")
+            .unwrap()
+            .render_help()
+            .to_string();
+        assert!(help.contains("[default: high]"), "{help}");
+        let m = command_for(&Strict)
+            .try_get_matches_from(["x", "scan", "."])
+            .unwrap();
+        let (_, sm) = m.subcommand().unwrap();
+        assert_eq!(sm.get_one::<Severity>("fail_on"), Some(&Severity::Critical));
     }
 }

@@ -61,6 +61,19 @@ impl Ctx {
         })
     }
 
+    /// A context that looks at nothing on disk: root ".", no files, full scope. For doctors whose
+    /// subject is not a directory (`TargetKind::Detached`). Cannot fail.
+    pub fn detached(config: Config, fail_on: Severity) -> Ctx {
+        Ctx {
+            root: PathBuf::from("."),
+            files: Vec::new(),
+            config,
+            scope: Scope::Full,
+            base: None,
+            fail_on,
+        }
+    }
+
     /// Read a file under `root` as UTF-8 (None for binary or unreadable files).
     pub fn read(&self, rel: &Path) -> Option<String> {
         std::fs::read_to_string(self.root.join(rel)).ok()

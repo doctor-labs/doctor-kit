@@ -23,6 +23,103 @@ pub fn is_scored(s: &Score) -> bool {
     s.model != UNSCORED
 }
 
+/// What a tool's `collect` produced, before sorting, scoring and wrapping into the envelope.
+#[derive(Debug, Default, Clone)]
+pub struct Collected {
+    pub findings: Vec<Finding>,
+    /// Becomes `envelope.data` verbatim (the default `collect` fills the kit's own keys).
+    pub data: Value,
+    /// Coverage gaps (rules that could not be evaluated); for `score_collected`.
+    pub gaps: usize,
+}
+
+/// Why a scan could not produce a report. `finish` (and the CLI) print `envelope` on stdout when
+/// present, then `stderr` verbatim, then exit with `exit`. (Boxed: an envelope is large.)
+#[derive(Debug, Clone)]
+pub struct ScanFailure {
+    pub exit: u8,
+    /// Exact stderr text, including the trailing newline. The kit adds no prefix.
+    pub stderr: String,
+    pub envelope: Option<Box<Envelope>>,
+}
+
+impl ScanFailure {
+    /// Exit 2 and `error: <msg>` on stderr (what the kit has always printed).
+    pub fn new(msg: impl std::fmt::Display) -> Self {
+        ScanFailure {
+            exit: 2,
+            stderr: format!("error: {msg}\n"),
+            envelope: None,
+        }
+    }
+    /// Also print this envelope on stdout (see [`failure_envelope`]).
+    pub fn with_envelope(mut self, env: Envelope) -> Self {
+        self.envelope = Some(Box::new(env));
+        self
+    }
+    pub fn with_exit(mut self, exit: u8) -> Self {
+        self.exit = exit;
+        self
+    }
+}
+
+impl std::fmt::Display for ScanFailure {
+    /// The message without the `error: ` prefix or trailing newline.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let t = self.stderr.trim_end();
+        f.write_str(t.strip_prefix("error: ").unwrap_or(t))
+    }
+}
+
+impl From<String> for ScanFailure {
+    fn from(s: String) -> Self {
+        ScanFailure::new(s)
+    }
+}
+
+/// What the subject of a doctor is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum TargetKind {
+    /// A directory of files (the default): `[PATH]`, `--scope`, `--base`, `--config` on kit commands.
+    #[default]
+    Dir,
+    /// Something else (a card, a radio, one capture file): the tool owns its subject; the kit walks
+    /// no directory ([`Ctx::detached`]).
+    Detached,
+}
+
+/// A doctor/1 envelope for a scan that failed: score 0, label `critical`, one coverage gap, no
+/// findings, `data = extra_data + {"error": {"kind", "message"}}`. The score model is the doctor's own.
+pub fn failure_envelope<D: Doctor + ?Sized>(
+    d: &D,
+    kind: &str,
+    message: &str,
+    extra_data: Value,
+) -> Envelope {
+    let probe = Ctx::detached(Default::default(), Severity::High);
+    let model = d
+        .score(&[], &probe)
+        .map(|s| s.model)
+        .unwrap_or_else(|| UNSCORED.into());
+    let mut data = match extra_data {
+        Value::Object(m) => m,
+        Value::Null => Map::new(),
+        other => {
+            let mut m = Map::new();
+            m.insert("details".into(), other);
+            m
+        }
+    };
+    data.insert("error".into(), json!({"kind": kind, "message": message}));
+    let score = Score {
+        value: 0,
+        label: "critical".into(),
+        model,
+        coverage_gaps: 1,
+    };
+    Envelope::new(d.name(), d.version(), 2, score, vec![], Value::Object(data))
+}
+
 pub trait Doctor {
     fn name(&self) -> &str;
     fn version(&self) -> &str;
@@ -112,8 +209,40 @@ pub trait Doctor {
         vec![]
     }
 
-    /// Run applicable, enabled checks and assemble the doctor/1 envelope.
-    fn scan(&self, ctx: &Ctx) -> Envelope {
+    // Scan pipeline. Override `collect` to produce findings and `data` your own way (non-file
+    // subjects, custom envelope data); the kit sorts, scores and wraps them. `scan` is the
+    // infallible form for callers that cannot handle failure; do not override it, override
+    // `collect` or `try_scan`.
+
+    /// What this doctor looks at. `Detached` = no directory walk.
+    fn target(&self) -> TargetKind {
+        TargetKind::Dir
+    }
+    /// `false`: the default `collect` does not add `extra["check"]` to findings.
+    fn tag_checks(&self) -> bool {
+        true
+    }
+    /// Severity used for `--fail-on` when the flag is absent.
+    fn default_fail_on(&self) -> Severity {
+        Severity::High
+    }
+    /// Whether a finding reports something that could not be evaluated (a coverage gap).
+    fn is_gap(&self, _f: &Finding) -> bool {
+        false
+    }
+    /// Serialisation of the envelope on stdout (`--json`, MCP `scan`). Default: pretty, trailing
+    /// newline. The kit never changes a finding's fingerprint, whatever the serialisation.
+    fn render_json(&self, env: &Envelope) -> String {
+        serde_json::to_string_pretty(env).unwrap() + "\n"
+    }
+    /// Score from a collected result (gives access to `gaps`). Default: [`Doctor::score`].
+    fn score_collected(&self, c: &Collected, ctx: &Ctx) -> Option<Score> {
+        self.score(&c.findings, ctx)
+    }
+
+    /// Default: run applicable, enabled checks; `data` = categories, checks_run, skipped, advice,
+    /// scope, files.
+    fn collect(&self, ctx: &Ctx) -> Result<Collected, ScanFailure> {
         let cats = self.categories();
         let (mut findings, mut advice, mut skipped) = (Vec::new(), Map::new(), Vec::new());
         let (mut ran, mut panicked) = (0, Vec::new());
@@ -152,13 +281,12 @@ pub trait Doctor {
                 if !cats.contains(&f.category.as_str()) {
                     continue;
                 }
-                f.extra.insert("check".into(), c.id().into());
+                if self.tag_checks() {
+                    f.extra.insert("check".into(), c.id().into());
+                }
                 findings.push(f);
             }
         }
-        Finding::sort(&mut findings);
-        let score = self.score(&findings, ctx).unwrap_or_else(unscored);
-        let exit = findings.iter().any(|f| f.severity >= ctx.fail_on) as u8;
         let mut data = json!({
             "categories": cats, "checks_run": ran, "skipped": skipped,
             "advice": advice, "scope": format!("{:?}", ctx.scope).to_lowercase(),
@@ -167,7 +295,37 @@ pub trait Doctor {
         if !panicked.is_empty() {
             data["panicked"] = json!(panicked); // only present when a check panicked
         }
-        Envelope::new(self.name(), self.version(), exit, score, findings, data)
+        Ok(Collected {
+            findings,
+            data,
+            gaps: 0,
+        })
+    }
+
+    /// `collect`, sort, score, envelope. `exit_code` = any finding at or above `ctx.fail_on`.
+    fn try_scan(&self, ctx: &Ctx) -> Result<Envelope, ScanFailure> {
+        let mut c = self.collect(ctx)?;
+        Finding::sort(&mut c.findings);
+        let score = self.score_collected(&c, ctx).unwrap_or_else(unscored);
+        let exit = c.findings.iter().any(|f| f.severity >= ctx.fail_on) as u8;
+        Ok(Envelope::new(
+            self.name(),
+            self.version(),
+            exit,
+            score,
+            c.findings,
+            c.data,
+        ))
+    }
+
+    /// Infallible `try_scan`: a failure becomes a [`failure_envelope`] of kind `scan-failed`.
+    fn scan(&self, ctx: &Ctx) -> Envelope {
+        self.try_scan(ctx).unwrap_or_else(|f| {
+            let msg = f.to_string();
+            f.envelope
+                .map(|b| *b)
+                .unwrap_or_else(|| failure_envelope(self, "scan-failed", &msg, Value::Null))
+        })
     }
 }
 

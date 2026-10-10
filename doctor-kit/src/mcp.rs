@@ -1,7 +1,7 @@
 //! `mcp`: a Model Context Protocol server, JSON-RPC 2.0 over stdio, no extra crates.
 //! Tools run in-process through the same code as the CLI, so `scan` returns the doctor/1
 //! envelope byte-identical to `scan --json` stdout.
-use crate::cli::{ctx_from, envelope_text, Opts};
+use crate::cli::{ctx_from, Opts};
 use crate::doctor::Doctor;
 use crate::fix;
 use serde_json::{json, Value};
@@ -28,7 +28,7 @@ pub fn tool_list() -> Value {
     ]})
 }
 
-fn opts_of(args: &Value) -> Result<(String, Opts), String> {
+fn opts_of(d: &dyn Doctor, args: &Value) -> Result<(String, Opts), String> {
     let s = |k: &str| args.get(k).and_then(Value::as_str);
     let scope = match s("scope").unwrap_or("full") {
         "full" => crate::Scope::Full,
@@ -37,7 +37,7 @@ fn opts_of(args: &Value) -> Result<(String, Opts), String> {
     };
     let fail_on = match s("fail_on") {
         Some(f) => crate::cli::parse_sev(f)?,
-        None => doctor_core::Severity::High,
+        None => d.default_fail_on(),
     };
     Ok((
         s("path").unwrap_or(".").to_string(),
@@ -51,10 +51,12 @@ fn opts_of(args: &Value) -> Result<(String, Opts), String> {
 }
 
 fn call(d: &dyn Doctor, name: &str, args: &Value) -> Result<String, String> {
-    let (path, opts) = opts_of(args)?;
-    let env = d.scan(&ctx_from(std::path::Path::new(&path), &opts)?);
+    let (path, opts) = opts_of(d, args)?;
+    let env = d
+        .try_scan(&ctx_from(std::path::Path::new(&path), &opts)?)
+        .map_err(|f| f.to_string())?;
     match name {
-        "scan" => Ok(envelope_text(&env)),
+        "scan" => Ok(d.render_json(&env)),
         "fix" => {
             let hits = fix::select(&env, args.get("id").and_then(Value::as_str))?;
             Ok(d.fix_prompt(&env, &hits))
