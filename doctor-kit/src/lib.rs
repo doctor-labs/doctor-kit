@@ -23,7 +23,7 @@ pub mod tui;
 pub use check::{finding, Check, CheckResult, Ctx, Scope};
 pub use cli::run;
 pub use config::{Config, Weights};
-pub use doctor::Doctor;
+pub use doctor::{failure_envelope, Collected, Doctor, ScanFailure, TargetKind};
 pub use face::Face;
 pub use node::{Action, Node};
 pub use session::{Command, Reply, Session};
