@@ -1,0 +1,140 @@
+//! K6: pluggable MCP tools and wire texts, in process (`handle` is pure).
+use doctor_kit::mcp::{handle, process_line};
+use doctor_kit::{Check, Doctor, McpTool, McpWire, Protocol};
+use serde_json::{json, Value};
+
+struct Own(bool);
+impl Doctor for Own {
+    fn name(&self) -> &str {
+        "own"
+    }
+    fn version(&self) -> &str {
+        "1"
+    }
+    fn categories(&self) -> Vec<&'static str> {
+        vec![]
+    }
+    fn checks(&self) -> Vec<Box<dyn Check>> {
+        vec![]
+    }
+    fn mcp_tools(&self) -> Option<Vec<McpTool>> {
+        self.0.then(|| {
+            vec![McpTool {
+                name: "echo".into(),
+                description: "Echo".into(),
+                schema: json!({"type": "object"}),
+                call: Box::new(|a| match a.get("fail") {
+                    Some(_) => Err("failed".into()),
+                    None => Ok(a.to_string()),
+                }),
+            }]
+        })
+    }
+    fn mcp_wire(&self) -> McpWire {
+        McpWire {
+            protocol: Protocol::EchoClient,
+            parse_error: "bad json".into(),
+            method_not_found: "no {m}".into(),
+            blank_line_is_parse_error: true,
+        }
+    }
+}
+
+fn req(m: &str, params: Value) -> Value {
+    json!({"jsonrpc": "2.0", "id": 1, "method": m, "params": params})
+}
+
+#[test]
+fn custom_tools_list_call_and_error() {
+    let d = Own(true);
+    let l = handle(&d, &req("tools/list", json!({}))).unwrap();
+    assert_eq!(l["result"]["tools"][0]["name"], "echo");
+    let ok = handle(
+        &d,
+        &req("tools/call", json!({"name": "echo", "arguments": {"a": 1}})),
+    )
+    .unwrap();
+    assert_eq!(
+        ok["result"],
+        json!({"content": [{"type": "text", "text": "{\"a\":1}"}], "isError": false})
+    );
+    let bad = handle(
+        &d,
+        &req(
+            "tools/call",
+            json!({"name": "echo", "arguments": {"fail": 1}}),
+        ),
+    )
+    .unwrap();
+    assert_eq!(bad["result"]["isError"], true);
+    assert_eq!(bad["result"]["content"][0]["text"], "failed");
+    let no = handle(
+        &d,
+        &req("tools/call", json!({"name": "scan", "arguments": {}})),
+    )
+    .unwrap();
+    assert_eq!(no["result"]["content"][0]["text"], "unknown tool scan");
+}
+
+#[test]
+fn wire_texts_and_protocol_echo() {
+    let d = Own(true);
+    let i = handle(&d, &req("initialize", json!({"protocolVersion": "9999"}))).unwrap();
+    assert_eq!(i["result"]["protocolVersion"], "9999");
+    let i = handle(&d, &req("initialize", json!({}))).unwrap();
+    assert_eq!(
+        i["result"]["protocolVersion"], "2024-11-05",
+        "no client version: the default"
+    );
+    let m = handle(&d, &req("zzz", json!({}))).unwrap();
+    assert_eq!(m["error"]["message"], "no zzz");
+    for line in [&b"{nope"[..], b"\n", b"   \n"] {
+        let r = process_line(&d, line).unwrap();
+        assert_eq!(
+            (r["error"]["code"].as_i64(), r["error"]["message"].as_str()),
+            (Some(-32700), Some("bad json"))
+        );
+    }
+}
+
+#[test]
+fn defaults_are_the_0_1_behaviour() {
+    struct Plain;
+    impl Doctor for Plain {
+        fn name(&self) -> &str {
+            "p"
+        }
+        fn version(&self) -> &str {
+            "1"
+        }
+        fn categories(&self) -> Vec<&'static str> {
+            vec![]
+        }
+        fn checks(&self) -> Vec<Box<dyn Check>> {
+            vec![]
+        }
+    }
+    assert!(process_line(&Plain, b"\n").is_none(), "blank lines ignored");
+    let r = process_line(&Plain, b"{nope").unwrap();
+    assert!(r["error"]["message"]
+        .as_str()
+        .unwrap()
+        .starts_with("parse error: "));
+    let l = handle(&Plain, &req("tools/list", json!({}))).unwrap();
+    let names: Vec<&str> = l["result"]["tools"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|t| t["name"].as_str().unwrap())
+        .collect();
+    assert_eq!(names, ["scan", "fix"]);
+    let i = handle(
+        &Plain,
+        &req("initialize", json!({"protocolVersion": "9999"})),
+    )
+    .unwrap();
+    assert_eq!(
+        i["result"]["protocolVersion"], "2024-11-05",
+        "fixed, not echoed"
+    );
+}

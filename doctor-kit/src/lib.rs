@@ -16,7 +16,6 @@ pub mod output;
 pub mod session;
 pub mod theme;
 
-#[cfg(feature = "mcp")]
 pub mod mcp;
 #[cfg(feature = "repl")]
 pub mod repl;
@@ -28,6 +27,7 @@ pub use cli::{command_with, run, run_with, ExtCommand, Extensions, Meta};
 pub use config::{Config, Weights};
 pub use doctor::{failure_envelope, Collected, Doctor, ScanFailure, TargetKind};
 pub use face::Face;
+pub use mcp::{McpTool, McpWire, Protocol};
 pub use node::{Action, Node};
 pub use output::{finish, preflight, OutputArgs};
 pub use session::{Command, Reply, Session};
