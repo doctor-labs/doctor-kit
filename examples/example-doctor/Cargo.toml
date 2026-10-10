@@ -16,6 +16,6 @@ mcp = ["doctor-kit/mcp"]
 serde_json = "1"
 
 [dependencies]
-doctor-kit = { path = "../../doctor-kit" }
+doctor-kit = { path = "../../doctor-kit", default-features = false }
 doctor-core = "0.1"
 serde_json = "1"
