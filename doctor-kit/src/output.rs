@@ -9,7 +9,7 @@
 //! ```
 use crate::baseline::{self, Saved};
 use crate::doctor::{is_scored, Doctor, ScanFailure};
-use crate::face::{render, Face};
+use crate::face::Face;
 use crate::theme::Theme;
 use clap::{Arg, ArgMatches, Args, ValueEnum};
 use doctor_core::{Envelope, Severity};
@@ -288,8 +288,9 @@ pub fn finish_with(
             Ok(t) => {
                 // The tool's own report gets the same sanitized copy the kit faces get.
                 let safe = crate::face::sanitize_envelope(&env);
-                d.render_human(&safe, &face, &t)
-                    .unwrap_or_else(|| render(face, &env, &t))
+                d.render_human(&safe, &face, &t).unwrap_or_else(|| {
+                    crate::face::render_with_notes(face, &env, &t, &d.notes(&env))
+                })
             }
             Err(e) => {
                 warnln!("error: {e}");

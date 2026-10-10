@@ -77,6 +77,8 @@ pub struct Session<'a> {
     pub ctx: Ctx,
     pub env: Envelope,
     pub tree: Node,
+    /// Notes for the top of the report ([`Doctor::notes`]), refreshed on every scan.
+    pub notes: Vec<crate::face::Note>,
     /// Child indexes from the root.
     pub cursor: Vec<usize>,
     /// Emit every reply as a JSON record.
@@ -109,7 +111,9 @@ impl<'a> Session<'a> {
     pub fn new(doctor: &'a dyn Doctor, ctx: Ctx) -> Session<'a> {
         let env = crate::face::sanitize_envelope(&doctor.scan(&ctx));
         let tree = doctor.tree(&env, &ctx);
+        let notes = doctor.notes(&env);
         Session {
+            notes,
             doctor,
             ctx,
             env,
@@ -288,7 +292,27 @@ impl<'a> Session<'a> {
         Ok(Outcome::Text(serde_json::to_string(&rec).unwrap()))
     }
 
-    fn dispatch(&mut self, verb: &str, mut a: Vec<String>) -> Result<Reply, String> {
+    /// `dispatch`, with the notes put first in the replies that report on the whole target
+    /// (`ls` / `info` at the root, `scan`); JSON replies get a `notes` array.
+    fn dispatch(&mut self, verb: &str, a: Vec<String>) -> Result<Reply, String> {
+        let at_root = a.is_empty() && self.cursor.is_empty();
+        let mut r = self.dispatch_inner(verb, a)?;
+        if !self.notes.is_empty() && ((matches!(verb, "ls" | "info") && at_root) || verb == "scan")
+        {
+            r.text = crate::face::notes_text(&self.notes) + &r.text;
+            if let Value::Object(m) = &mut r.data {
+                let list: Vec<Value> = self
+                    .notes
+                    .iter()
+                    .map(|n| json!({"level": n.level.as_str(), "text": doctor_core::sanitize(&n.text)}))
+                    .collect();
+                m.insert("notes".into(), Value::Array(list));
+            }
+        }
+        Ok(r)
+    }
+
+    fn dispatch_inner(&mut self, verb: &str, mut a: Vec<String>) -> Result<Reply, String> {
         let sel = a.first().cloned();
         let sel = sel.as_deref();
         match verb {
@@ -515,6 +539,7 @@ impl<'a> Session<'a> {
         };
         self.env = crate::face::sanitize_envelope(&self.doctor.scan(&ctx));
         self.tree = self.doctor.tree(&self.env, &ctx);
+        self.notes = self.doctor.notes(&self.env);
         self.ctx = ctx;
         self.cursor = vec![];
         self.expanded.clear();

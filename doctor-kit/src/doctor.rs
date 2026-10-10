@@ -310,6 +310,14 @@ pub trait Doctor {
     fn render_json(&self, env: &Envelope) -> String {
         serde_json::to_string_pretty(env).unwrap() + "\n"
     }
+    /// Notes shown before everything else in the human report (faces, `shell`, `explore`): the
+    /// result is incomplete, a walk was truncated, an archive stopped early. Default: an
+    /// `INCOMPLETE` banner when `score.coverage_gaps > 0`, plus `data.notes` (strings or
+    /// `{"level", "text"}`). Override for full control (no banner, own wording). Notes are text for
+    /// people: never part of `--json` or SARIF, and sanitized when shown.
+    fn notes(&self, env: &Envelope) -> Vec<crate::face::Note> {
+        crate::face::notes_of(env)
+    }
     /// The report `finish` prints for people (not `--json`/`--score`). `None` (default): the kit
     /// face. A tool with its own report (a per-image audit, a file list) returns it here and still
     /// gets the baseline, SARIF and exit pipeline. `env` is already sanitized; `face` and `theme`

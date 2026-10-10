@@ -2,6 +2,7 @@
 use crate::doctor::{is_scored, severity_counts};
 use crate::theme::Theme;
 use doctor_core::{Envelope, Finding, Severity};
+use serde_json::Value;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
 pub enum Face {
@@ -55,13 +56,126 @@ pub fn sanitize_envelope(env: &Envelope) -> Envelope {
     e
 }
 
+/// How loud a [`Note`] is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NoteLevel {
+    Info,
+    Warn,
+    Error,
+}
+
+impl NoteLevel {
+    fn parse(s: &str) -> NoteLevel {
+        match s.to_ascii_lowercase().as_str() {
+            "info" | "note" => NoteLevel::Info,
+            "error" | "critical" | "fatal" => NoteLevel::Error,
+            _ => NoteLevel::Warn,
+        }
+    }
+    pub fn as_str(self) -> &'static str {
+        match self {
+            NoteLevel::Info => "info",
+            NoteLevel::Warn => "warn",
+            NoteLevel::Error => "error",
+        }
+    }
+    /// Label shown before the text.
+    fn label(self) -> &'static str {
+        match self {
+            NoteLevel::Info => "NOTE: ",
+            NoteLevel::Warn => "WARNING: ",
+            NoteLevel::Error => "ERROR: ",
+        }
+    }
+    /// Theme token used to paint it.
+    fn token(self) -> &'static str {
+        match self {
+            NoteLevel::Info => "dim",
+            NoteLevel::Warn => "medium",
+            NoteLevel::Error => "high",
+        }
+    }
+}
+
+/// A line the human report shows before everything else (the result is incomplete, the walk was
+/// truncated, an archive stopped early). Never part of the machine envelope.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Note {
+    pub level: NoteLevel,
+    pub text: String,
+}
+
+/// The default notes of an envelope: an `INCOMPLETE` banner when `score.coverage_gaps > 0`, then
+/// `data.notes` (an array of strings, taken as warnings, or of `{"level", "text"}` objects).
+pub fn notes_of(env: &Envelope) -> Vec<Note> {
+    let mut v = vec![];
+    if env.score.coverage_gaps > 0 {
+        v.push(Note {
+            level: NoteLevel::Warn,
+            text: format!(
+                "INCOMPLETE: {} coverage gap(s); findings may be missing",
+                env.score.coverage_gaps
+            ),
+        });
+    }
+    for n in env.data["notes"].as_array().into_iter().flatten() {
+        match n {
+            Value::String(t) => v.push(Note {
+                level: NoteLevel::Warn,
+                text: t.clone(),
+            }),
+            Value::Object(o) => {
+                if let Some(t) = o.get("text").and_then(Value::as_str) {
+                    let l = o.get("level").and_then(Value::as_str).unwrap_or("warn");
+                    v.push(Note {
+                        level: NoteLevel::parse(l),
+                        text: t.to_string(),
+                    });
+                }
+            }
+            _ => {}
+        }
+    }
+    v
+}
+
+/// `lines` of notes for plain text (no theme), sanitized.
+pub fn notes_text(notes: &[Note]) -> String {
+    notes
+        .iter()
+        .map(|n| format!("{}{}\n", n.level.label(), doctor_core::sanitize(&n.text)))
+        .collect()
+}
+
 pub fn render(face: Face, env: &Envelope, theme: &Theme) -> String {
+    render_with_notes(face, env, theme, &notes_of(env))
+}
+
+/// [`render`] with the notes chosen by the caller (see [`crate::Doctor::notes`]). Notes are shown
+/// first, in the face's own style; their text is sanitized like finding text.
+pub fn render_with_notes(face: Face, env: &Envelope, theme: &Theme, notes: &[Note]) -> String {
     let env = &sanitize_envelope(env);
     match face {
-        Face::Plain => plain(env, theme),
-        Face::Rich => rich(env, theme),
-        Face::Compact => compact(env, theme),
+        Face::Plain => plain(env, theme, notes),
+        Face::Rich => rich(env, theme, notes),
+        Face::Compact => compact(env, theme, notes),
     }
+}
+
+fn note_row(n: &Note, t: &Theme, max: usize) -> Row {
+    let text = doctor_core::sanitize(&n.text);
+    Row::new().add(
+        t,
+        n.level.token(),
+        &clip(&format!("{}{text}", n.level.label()), max),
+    )
+}
+
+fn notes_block(t: &Theme, notes: &[Note]) -> String {
+    notes
+        .iter()
+        .map(|n| note_row(n, t, usize::MAX).styled + "\n")
+        .collect()
 }
 
 /// Text built twice in lockstep: `plain` for width math, `styled` for output.
@@ -131,14 +245,14 @@ fn sev_pad(s: Severity) -> String {
 
 // ---- A: plain -------------------------------------------------------------------------------
 
-fn plain(env: &Envelope, t: &Theme) -> String {
+fn plain(env: &Envelope, t: &Theme, notes: &[Note]) -> String {
     let mut out = Row::new().add(t, "heading", &format!("{} {}", env.tool, env.version));
     if let Some(s) = score_text(env) {
         out = out
             .add(t, "dim", "  score ")
             .add(t, Theme::score_token(env.score.value), &s);
     }
-    let mut s = out.styled + "\n";
+    let mut s = notes_block(t, notes) + &out.styled + "\n";
     let w_loc = env
         .findings
         .iter()
@@ -199,8 +313,14 @@ fn gauge(env: &Envelope, t: &Theme) -> Row {
         )
 }
 
-fn rich(env: &Envelope, t: &Theme) -> String {
+fn rich(env: &Envelope, t: &Theme, notes: &[Note]) -> String {
     let mut rows = vec![];
+    for n in notes {
+        rows.push(Some(note_row(n, t, INNER)));
+    }
+    if !notes.is_empty() {
+        rows.push(None);
+    }
     rows.push(Some(if is_scored(&env.score) {
         gauge(env, t)
     } else {
@@ -249,7 +369,7 @@ fn rich(env: &Envelope, t: &Theme) -> String {
 
 // ---- C: compact -----------------------------------------------------------------------------
 
-fn compact(env: &Envelope, t: &Theme) -> String {
+fn compact(env: &Envelope, t: &Theme, notes: &[Note]) -> String {
     let mut head = Row::new()
         .add(t, "heading", &format!("{} {}", env.tool, env.version))
         .add(t, "dim", " | ");
@@ -258,9 +378,10 @@ fn compact(env: &Envelope, t: &Theme) -> String {
             .add(t, Theme::score_token(env.score.value), &s)
             .add(t, "dim", " | ");
     }
-    let mut s = head
-        .add(t, "dim", &format!("{} findings: ", env.findings.len()))
-        .styled;
+    let mut s = notes_block(t, notes)
+        + &head
+            .add(t, "dim", &format!("{} findings: ", env.findings.len()))
+            .styled;
     s += &counts_row(env, t).styled;
     s.push('\n');
     if env.findings.is_empty() {

@@ -225,7 +225,22 @@ impl<'a> App<'a> {
 }
 
 fn draw(f: &mut Frame, app: &App) {
-    let [top, findings, status] = Layout::vertical([
+    let banner: Vec<ratatui::text::Line> = app
+        .s
+        .notes
+        .iter()
+        .take(3)
+        .map(|n| {
+            ratatui::text::Line::styled(
+                crate::face::notes_text(std::slice::from_ref(n))
+                    .trim_end()
+                    .to_string(),
+                Style::new().add_modifier(Modifier::BOLD),
+            )
+        })
+        .collect();
+    let [banner_area, top, findings, status] = Layout::vertical([
+        Constraint::Length(banner.len() as u16),
         Constraint::Min(8),
         Constraint::Length(8),
         Constraint::Length(1),
@@ -235,6 +250,9 @@ fn draw(f: &mut Frame, app: &App) {
         Layout::horizontal([Constraint::Percentage(35), Constraint::Percentage(65)]).areas(top);
     let [detail, raw] =
         Layout::vertical([Constraint::Percentage(50), Constraint::Percentage(50)]).areas(right);
+    if !banner.is_empty() {
+        f.render_widget(Paragraph::new(banner), banner_area);
+    }
     let hl = Style::new().add_modifier(Modifier::REVERSED);
     let focus = |t: &str, on: bool| format!(" {t}{} ", if on { " *" } else { "" });
 

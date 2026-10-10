@@ -417,3 +417,59 @@ fn interrupted_envelope_shape_is_the_tools() {
     );
     assert_eq!(v["exit_code"], 130);
 }
+
+#[test]
+fn notes_lead_every_face_and_stay_out_of_machine_output() {
+    for face in ["plain", "compact", "rich"] {
+        let (c, out, _) = run(&[
+            "scan",
+            "--subject",
+            "gappy",
+            "--face",
+            face,
+            "--color",
+            "never",
+        ]);
+        assert_eq!(c, 0, "{face}");
+        let first = out.lines().nth(usize::from(face == "rich")).unwrap(); // rich: after the title border
+                                                                           // the banner is the first thing; the tool's own notes follow it, before the findings
+        let banner = out
+            .find("INCOMPLETE: 2 coverage gap(s)")
+            .unwrap_or_else(|| panic!("{face}: {out}"));
+        let trunc = out
+            .find("TRUNCATED: walk did not see the whole subject")
+            .unwrap();
+        let info = out.find("NOTE: stopped at the second archive").unwrap();
+        let finding = out.find("ext.meh").unwrap();
+        assert!(
+            banner < trunc && trunc < info && info < finding,
+            "{face}: {out}"
+        );
+        assert!(
+            first.contains("WARNING: INCOMPLETE") || first.contains("INCOMPLETE"),
+            "{face}: {first}"
+        );
+    }
+    // JSON: notes stay data (the tool's own key), nothing is added by the kit, score carries the gaps.
+    let (_, json, _) = run(&["scan", "--subject", "gappy", "--json"]);
+    let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+    assert_eq!(v["score"]["coverage_gaps"], 2);
+    assert!(!json.contains("INCOMPLETE") && !json.contains("WARNING:"));
+    // A tool that overrides `notes` owns them: no banner, no data.notes.
+    let o = Command::new(env!("CARGO_BIN_EXE_ext-doctor"))
+        .args(["scan", "--subject", "gappy", "--headless"])
+        .env("EXT_DOCTOR_NONOTES", "1")
+        .output()
+        .unwrap();
+    let out = String::from_utf8_lossy(&o.stdout);
+    assert!(
+        !out.contains("INCOMPLETE") && !out.contains("TRUNCATED"),
+        "{out}"
+    );
+    // no gaps, no notes: the report is the plain 0.2.1 one
+    let (_, clean, _) = run(&["scan", "--subject", "meh", "--headless"]);
+    assert!(
+        !clean.contains("WARNING") && !clean.contains("NOTE"),
+        "{clean}"
+    );
+}

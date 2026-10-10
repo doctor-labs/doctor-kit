@@ -50,6 +50,9 @@ pub fn run(doctor: &dyn Doctor, ctx: Ctx, command: Option<&str>, json: bool) -> 
             s.env.findings.len()
         )?;
     }
+    if !s.notes.is_empty() {
+        say!("{}", crate::face::notes_text(&s.notes))?;
+    }
     let hints = Arc::new(Mutex::new(s.hints()));
     let mut kb = default_emacs_keybindings();
     kb.add_binding(
