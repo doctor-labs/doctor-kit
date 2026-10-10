@@ -29,7 +29,7 @@ pub use doctor::{failure_envelope, Collected, Doctor, ScanFailure, TargetKind};
 pub use face::Face;
 pub use mcp::{McpTool, McpWire, Protocol};
 pub use node::{Action, Node};
-pub use output::{finish, preflight, OutputArgs};
+pub use output::{finish, finish_with, preflight, FinishOpts, OutputArgs};
 pub use session::{Command, Reply, Session};
 pub use theme::Theme;
 

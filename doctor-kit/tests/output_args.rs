@@ -66,15 +66,3 @@ fn a_command_with_a_subset_of_the_ids_takes_defaults_for_the_rest() {
     assert_eq!(o.fail_on, Severity::Medium);
     assert!(o.sarif.is_none() && o.baseline.is_none() && o.theme_root.is_none());
 }
-
-#[test]
-fn never_fail_is_a_per_command_switch_off_by_default() {
-    let d = D(Severity::High);
-    let m = Command::new("x")
-        .args(OutputArgs::args(&d))
-        .try_get_matches_from(["x"])
-        .unwrap();
-    let o = OutputArgs::from_matches(&m, &d);
-    assert!(!o.never_fail);
-    assert!(o.never_fail().never_fail);
-}
