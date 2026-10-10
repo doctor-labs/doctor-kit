@@ -70,6 +70,9 @@ struct InstallArgs {
     /// Also add a Claude Code PostToolUse hook that scans changed files after edits
     #[arg(long)]
     agent_hooks: bool,
+    /// Print the files instead of writing them
+    #[arg(long)]
+    print_only: bool,
 }
 
 #[derive(Args)]
@@ -87,6 +90,9 @@ enum CiAction {
         /// Print the workflow instead of writing it
         #[arg(long)]
         print: bool,
+        /// Replace an existing workflow whose content differs
+        #[arg(long)]
+        force: bool,
     },
 }
 
@@ -235,6 +241,22 @@ fn hand_off(
 }
 
 fn install(d: &dyn Doctor, a: InstallArgs) -> Result<u8, String> {
+    if a.print_only {
+        for f in crate::install::plan(d, a.agent) {
+            println!(
+                "=== {} ===\n{}",
+                f.path.display(),
+                crate::install::rendered(&f)
+            );
+        }
+        if a.agent_hooks {
+            println!(
+                "=== .claude/settings.json ===\n{}",
+                crate::install::hook_settings("", &d.command())?
+            );
+        }
+        return Ok(0);
+    }
     for p in crate::install::install(d, &a.dir, a.agent, a.agent_hooks)? {
         println!("wrote {}", p.display());
     }
@@ -242,11 +264,19 @@ fn install(d: &dyn Doctor, a: InstallArgs) -> Result<u8, String> {
 }
 
 fn ci(d: &dyn Doctor, a: CiArgs) -> Result<u8, String> {
-    let CiAction::Install { dir, print } = a.action;
+    let CiAction::Install { dir, print, force } = a.action;
     if print {
         print!("{}", d.ci_workflow());
     } else {
-        println!("wrote {}", crate::install::ci_install(d, &dir)?.display());
+        let ow = if force {
+            crate::install::Overwrite::Always
+        } else {
+            crate::install::Overwrite::RefuseDifferent
+        };
+        println!(
+            "wrote {}",
+            crate::install::ci_install_with(d, &dir, ow)?.display()
+        );
     }
     Ok(0)
 }

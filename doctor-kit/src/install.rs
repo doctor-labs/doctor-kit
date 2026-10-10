@@ -2,8 +2,8 @@
 //! Templates are defaults; a `Doctor` overrides `skill_body` / `ci_workflow`.
 use crate::doctor::Doctor;
 use serde_json::{json, Value};
-use std::io;
-use std::path::{Path, PathBuf};
+use std::io::{self, Write};
+use std::path::{Component, Path, PathBuf};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
 pub enum Agent {
@@ -60,13 +60,97 @@ __STEPS__      - name: Scan changed files
     .replace("__STEPS__", &steps)
 }
 
-fn put(root: &Path, rel: &str, text: &str) -> io::Result<PathBuf> {
-    let p = root.join(rel);
-    if let Some(d) = p.parent() {
-        std::fs::create_dir_all(d)?;
+/// What an existing file is allowed to lose.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Overwrite {
+    /// Replace it (what `install` has always done).
+    Always,
+    /// Replace only identical content (a no-op); refuse a file that differs. `--force` = `Always`.
+    RefuseDifferent,
+}
+
+/// Write `text` to `root/rel...` without following symlinks: a symlinked directory on the path
+/// or a symlinked target is refused (a hostile repository could otherwise aim `.claude` or
+/// `.github` at `~`). Directories are created one level at a time; the file is written to a fresh
+/// temp file in its directory and renamed into place, so a link swapped in meanwhile is replaced,
+/// not followed. `root` itself may be a symlink (the user named it).
+pub fn put_safe(
+    root: &Path,
+    rel: &[&str],
+    text: &str,
+    overwrite: Overwrite,
+) -> Result<PathBuf, String> {
+    let (name, dirs) = rel.split_last().ok_or("empty path")?;
+    let mut p = root.to_path_buf();
+    for part in dirs {
+        safe_component(part)?;
+        p.push(part);
+        match std::fs::symlink_metadata(&p) {
+            Ok(m) if m.file_type().is_symlink() => {
+                return Err(format!("refusing to write through symlink {}", p.display()))
+            }
+            Ok(m) if m.is_dir() => {}
+            Ok(_) => return Err(format!("{} is not a directory", p.display())),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => {
+                std::fs::create_dir(&p).map_err(|e| format!("{}: {e}", p.display()))?;
+            }
+            Err(e) => return Err(format!("{}: {e}", p.display())),
+        }
     }
-    std::fs::write(&p, text)?;
+    safe_component(name)?;
+    p.push(name);
+    match std::fs::symlink_metadata(&p) {
+        Ok(m) if m.file_type().is_symlink() => {
+            return Err(format!("refusing to write through symlink {}", p.display()))
+        }
+        Ok(m) if !m.is_file() => return Err(format!("{} is not a file", p.display())),
+        Ok(_) => match overwrite {
+            Overwrite::Always => {}
+            Overwrite::RefuseDifferent => {
+                if std::fs::read_to_string(&p).is_ok_and(|cur| cur == text) {
+                    return Ok(p);
+                }
+                return Err(format!(
+                    "{} exists and differs; use --force to overwrite",
+                    p.display()
+                ));
+            }
+        },
+        Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+        Err(e) => return Err(format!("{}: {e}", p.display())),
+    }
+    let tmp = p.with_file_name(format!(".{name}.tmp{}", std::process::id()));
+    let res = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&tmp)
+        .and_then(|mut f| f.write_all(text.as_bytes()))
+        .and_then(|_| std::fs::rename(&tmp, &p));
+    if let Err(e) = res {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(format!("{}: {e}", p.display()));
+    }
     Ok(p)
+}
+
+fn safe_component(c: &str) -> Result<(), String> {
+    let ok = !c.is_empty()
+        && matches!(Path::new(c).components().next(), Some(Component::Normal(_)))
+        && Path::new(c).components().count() == 1;
+    ok.then_some(())
+        .ok_or_else(|| format!("unsafe path component `{c}`"))
+}
+
+/// Read a file for a read-modify-write, refusing a symlink. Missing = empty.
+fn read_safe(p: &Path) -> Result<String, String> {
+    match std::fs::symlink_metadata(p) {
+        Ok(m) if m.file_type().is_symlink() => {
+            Err(format!("refusing to read through symlink {}", p.display()))
+        }
+        Ok(_) => std::fs::read_to_string(p).map_err(|e| format!("{}: {e}", p.display())),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(String::new()),
+        Err(e) => Err(format!("{}: {e}", p.display())),
+    }
 }
 
 fn markers(name: &str) -> (String, String) {
@@ -79,8 +163,14 @@ fn markers(name: &str) -> (String, String) {
 /// Replace the marked block in place, or append it. Text outside the markers is untouched.
 pub fn upsert_block(existing: &str, name: &str, body: &str) -> String {
     let (s, e) = markers(name);
+    upsert_block_with(existing, &s, &e, body)
+}
+
+/// [`upsert_block`] with caller-owned marker lines (the whole `begin` and `end` strings).
+pub fn upsert_block_with(existing: &str, begin: &str, end: &str, body: &str) -> String {
+    let (s, e) = (begin, end);
     let block = format!("{s}\n{}\n{e}\n", body.trim_end());
-    if let (Some(a), Some(b)) = (existing.find(&s), existing.find(&e)) {
+    if let (Some(a), Some(b)) = (existing.find(s), existing.find(e)) {
         if a < b {
             let rest = &existing[b + e.len()..];
             return format!(
@@ -98,9 +188,113 @@ pub fn upsert_block(existing: &str, name: &str, body: &str) -> String {
     }
 }
 
+/// How a file of [`AgentFile`] reaches disk.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FileMode {
+    /// The whole file is `body`.
+    Write,
+    /// `body` is a block between these marker lines inside a file that may hold other text.
+    Block { begin: String, end: String },
+}
+
+/// One file `install` writes, relative to the repository root.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AgentFile {
+    pub path: PathBuf,
+    pub body: String,
+    pub mode: FileMode,
+}
+
+/// The kit's files for one agent (what [`Doctor::agent_files`] returns by default). `Opencode`
+/// shares Codex's `AGENTS.md`.
+pub fn default_agent_files<D: Doctor + ?Sized>(d: &D, agent: Agent) -> Vec<AgentFile> {
+    let (name, body) = (d.name().to_string(), d.skill_body());
+    match agent {
+        Agent::Claude => vec![AgentFile {
+            path: format!(".claude/skills/{name}/SKILL.md").into(),
+            body: format!(
+                "---\nname: {name}\ndescription: Run `{}` to scan this project and fix what it reports.\n---\n\n{body}",
+                d.command()
+            ),
+            mode: FileMode::Write,
+        }],
+        Agent::Cursor => vec![AgentFile {
+            path: format!(".cursor/rules/{name}.mdc").into(),
+            body: format!(
+                "---\ndescription: How to run {name} and read its output\nalwaysApply: false\n---\n\n{body}"
+            ),
+            mode: FileMode::Write,
+        }],
+        Agent::Codex | Agent::Opencode => {
+            let (begin, end) = markers(&name);
+            vec![AgentFile {
+                path: "AGENTS.md".into(),
+                body,
+                mode: FileMode::Block { begin, end },
+            }]
+        }
+    }
+}
+
+/// What `install` would write: every agent's files, or one agent's.
+pub fn plan(d: &dyn Doctor, agent: Option<Agent>) -> Vec<AgentFile> {
+    match agent {
+        Some(a) => d.agent_files(a),
+        None => [Agent::Claude, Agent::Cursor, Agent::Codex]
+            .into_iter()
+            .flat_map(|a| d.agent_files(a))
+            .collect(),
+    }
+}
+
+/// The text a block file gets when it does not exist yet (for `--print-only`).
+pub fn rendered(f: &AgentFile) -> String {
+    match &f.mode {
+        FileMode::Write => f.body.clone(),
+        FileMode::Block { begin, end } => upsert_block_with("", begin, end, &f.body),
+    }
+}
+
+/// Write `files` under `root` with [`put_safe`]; a `Block` file is merged into what is there.
+/// Returns the paths written.
+pub fn write(
+    root: &Path,
+    files: &[AgentFile],
+    overwrite: Overwrite,
+) -> Result<Vec<PathBuf>, String> {
+    let mut out = vec![];
+    for f in files {
+        let rel: Vec<String> = f
+            .path
+            .components()
+            .map(|c| c.as_os_str().to_string_lossy().into_owned())
+            .collect();
+        let rel: Vec<&str> = rel.iter().map(String::as_str).collect();
+        let text = match &f.mode {
+            FileMode::Write => f.body.clone(),
+            FileMode::Block { begin, end } => {
+                let cur = read_safe(&root.join(&f.path))?;
+                upsert_block_with(&cur, begin, end, &f.body)
+            }
+        };
+        let ow = if matches!(f.mode, FileMode::Block { .. }) {
+            Overwrite::Always
+        } else {
+            overwrite
+        };
+        out.push(put_safe(root, &rel, &text, ow)?);
+    }
+    Ok(out)
+}
+
 /// Add a PostToolUse hook to `.claude/settings.json` that scans changed files after edits and
 /// feeds failures back to the agent (exit 2). Idempotent.
 // ponytail: serde_json sorts keys, so an existing settings.json is rewritten key-sorted.
+/// The `.claude/settings.json` text with the kit's PostToolUse hook merged into `existing`.
+pub fn hook_settings(existing: &str, command: &str) -> Result<String, String> {
+    merge_hook(existing, command)
+}
+
 fn merge_hook(existing: &str, command: &str) -> Result<String, String> {
     let mut v: Value = if existing.trim().is_empty() {
         json!({})
@@ -136,41 +330,34 @@ pub fn install(
     agent: Option<Agent>,
     hooks: bool,
 ) -> Result<Vec<PathBuf>, String> {
-    let (name, body) = (d.name().to_string(), d.skill_body());
-    let io = |e: io::Error| e.to_string();
-    let want = |a: &[Agent]| agent.is_none_or(|x| a.contains(&x));
-    let mut out = vec![];
-    if want(&[Agent::Claude]) {
-        let t = format!(
-            "---\nname: {name}\ndescription: Run `{}` to scan this project and fix what it reports.\n---\n\n{body}",
-            d.command()
-        );
-        out.push(put(root, &format!(".claude/skills/{name}/SKILL.md"), &t).map_err(io)?);
-    }
-    if want(&[Agent::Cursor]) {
-        let t = format!(
-            "---\ndescription: How to run {name} and read its output\nalwaysApply: false\n---\n\n{body}"
-        );
-        out.push(put(root, &format!(".cursor/rules/{name}.mdc"), &t).map_err(io)?);
-    }
-    if want(&[Agent::Codex, Agent::Opencode]) {
-        let cur = std::fs::read_to_string(root.join("AGENTS.md")).unwrap_or_default();
-        out.push(put(root, "AGENTS.md", &upsert_block(&cur, &name, &body)).map_err(io)?);
-    }
+    let mut out = write(root, &plan(d, agent), Overwrite::Always)?;
     if hooks {
-        let rel = ".claude/settings.json";
-        let cur = std::fs::read_to_string(root.join(rel)).unwrap_or_default();
-        out.push(put(root, rel, &merge_hook(&cur, &d.command())?).map_err(io)?);
+        let cur = read_safe(&root.join(".claude/settings.json"))?;
+        out.push(put_safe(
+            root,
+            &[".claude", "settings.json"],
+            &merge_hook(&cur, &d.command())?,
+            Overwrite::Always,
+        )?);
     }
     Ok(out)
 }
 
-/// Write the GitHub Actions workflow; returns its path.
+/// Write the GitHub Actions workflow; returns its path. Refuses to replace a workflow whose
+/// content differs (see [`ci_install_with`]).
 pub fn ci_install(d: &dyn Doctor, root: &Path) -> Result<PathBuf, String> {
-    put(
+    ci_install_with(d, root, Overwrite::RefuseDifferent)
+}
+
+pub fn ci_install_with(
+    d: &dyn Doctor,
+    root: &Path,
+    overwrite: Overwrite,
+) -> Result<PathBuf, String> {
+    put_safe(
         root,
-        &format!(".github/workflows/{}.yml", d.name()),
+        &[".github", "workflows", &format!("{}.yml", d.name())],
         &d.ci_workflow(),
+        overwrite,
     )
-    .map_err(|e| e.to_string())
 }
