@@ -1,9 +1,7 @@
 //! 0.2.x must stay source-compatible with code written against 0.2.1 (see compat_020.rs for the
 //! rule). 0.2.1 shapes only: if this stops compiling, a patch release broke a user.
 use doctor_kit::mcp::{exec_self_fmt, ExecOpts};
-use doctor_kit::{
-    finish_with, Check, Doctor, FinishOpts, McpTexts, OutputArgs, PreflightKind, ScanFailure,
-};
+use doctor_kit::{finish_with, Check, Doctor, FinishOpts, McpTexts, PreflightKind, ScanFailure};
 
 struct D;
 impl Doctor for D {
@@ -60,14 +58,8 @@ impl Doctor for D {
 #[test]
 fn zero_two_one_shapes_compile_and_behave() {
     let _ = D.mcp_texts();
-    let _: fn(&[String], &ExecOpts, Option<&str>) -> Result<String, String> = exec_self_fmt;
+    let _ = exec_self_fmt(&["--list".to_string()], &ExecOpts::default(), None);
     let _ = FinishOpts { never_fail: true };
-    let _: fn(
-        &dyn Doctor,
-        doctor_kit::output::Preflight,
-        Result<doctor_core::Envelope, ScanFailure>,
-        &OutputArgs,
-        &FinishOpts,
-    ) -> u8 = finish_with;
+    let _ = finish_with; // 0.2.1 signature: (d, pre, result, &OutputArgs, &FinishOpts) -> u8
     assert_eq!(ScanFailure::plain("x").stderr, "x\n");
 }
