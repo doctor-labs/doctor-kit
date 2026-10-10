@@ -33,8 +33,9 @@ Published on [crates.io](https://crates.io/crates/doctor-kit):
 
 ```toml
 [dependencies]
-doctor-kit = "0.1"
-# optional features: repl (shell), tui (explore), mcp (mcp)
+doctor-kit = "0.2"
+# default features: repl (shell), tui (explore), mcp (mcp), signals (Ctrl-C = exit 130).
+# Opt out with `default-features = false` and re-enable the ones you want.
 ```
 
 Or start a new doctor from the template: `cargo generate doctor-labs/doctor-template`.
@@ -81,7 +82,7 @@ Reusable skeleton for "doctor" CLI tools. Output is the `doctor/1` envelope from
 - `doctor-kit/`: the library. Implement `Doctor` (name, version, categories, checks), call `doctor_kit::run(MyDoctor)`.
   You get `scan` with faces (`--face plain|rich|compact`), `--json`, `--score`, `--headless`, `--scope full|changed`,
   themes (`--theme mono|clinical|contrast`, `theme.toml`), `doctor.toml` (score weights, check enable/disable),
-  and with cargo features `repl` (`shell`), `tui` (`explore`) and `mcp` (`mcp`).
+  and, with the default cargo features, `repl` (`shell`), `tui` (`explore`), `mcp` (`mcp`) and `signals`.
 - Agentic base, inherited by every tool, customized through `Doctor` hooks (`command`, `fix_prompt`,
   `skill_body`, `ci_setup_steps`, `ci_workflow`):
   `tool mcp` (stdio JSON-RPC; `scan` returns the CLI's envelope byte-identical, plus `fix`),
@@ -89,6 +90,7 @@ Reusable skeleton for "doctor" CLI tools. Output is the `doctor/1` envelope from
   (Claude skill, Cursor rule, AGENTS.md block, optional PostToolUse hook), `tool ci install [--print]`
   (PR workflow), and `scan --scope changed [--base origin/main]` for PR mode.
 - `examples/example-doctor/`: a toy doctor in about one screen of code.
+- `examples/ext-doctor/`: a doctor whose subject is not a directory, showing the extension points below.
 - `examples/samples/`: the face x theme captures.
 
     cargo run -p example-doctor -- scan examples/fixture --face rich --theme clinical
@@ -105,6 +107,28 @@ Interactive layer (shared by `shell` and `explore`, both over one `Session`):
 - REPL tab-completes verbs, children, actions and flags. TUI keys: `hjkl`/arrows, enter, backspace, `/` filter,
   `:` command line, `d` decode, `w` why, `x` export, tab switches tree/findings focus, `q`.
 - `scan --sarif <path>`; a panicking check becomes a `<check>.panic` finding and the scan continues.
+
+### Making the kit fit your tool (0.2)
+
+A tool keeps domain logic; the kit owns the shared plumbing. Every hook is defaulted, so a doctor written for 0.1
+runs unchanged.
+
+- **Own findings and data**: override `Doctor::collect -> Result<Collected, ScanFailure>` (findings, `data`, coverage
+  `gaps`); the kit sorts, scores (`score_collected`) and wraps them. `tag_checks`, `is_gap`, `default_fail_on` and
+  `render_json` (compact or sorted output) adapt the rest. The kit never recomputes a fingerprint.
+- **Own subject**: `target() -> TargetKind::Detached` for a card, radio or single file: no directory walk
+  (`Ctx::detached`), no `[PATH]/--scope/--base` on the kit commands.
+- **Own commands**: `run_with(Meta::of(&d), Extensions { commands, global_args, usage_exit }, |matches| Ok(doctor))`.
+  An `ExtCommand` named like a kit command (`scan`, `fix`, ...) replaces it; others are added. Inside your own
+  command, `OutputArgs::from_matches` + `preflight` + `finish` give you the kit's baseline (`--baseline`, exit 3),
+  SARIF (`render_sarif`), exit-code and single-write output pipeline with your own flags and `--help` text.
+- **MCP**: `Doctor::mcp_tools` replaces `scan`/`fix` with your tools; `McpWire` keeps older wire texts;
+  `mcp::exec_self` re-runs your CLI with `--json` (timeout, size cap, which exit codes are results).
+- **Agents**: `fix --from report.json` (no rescan), `fix --agent claude|codex|cursor [--yolo]`, `install --print-only`,
+  `Doctor::agent_files` (exact bodies, own markers), symlink-safe writes, `ci install --force`.
+- **Ctrl-C**: `interrupt::{install, interrupted, check}`; `scan` exits 130 with an `interrupted` failure envelope.
+
+See [CHANGELOG.md](CHANGELOG.md) for the full list and the few behaviour changes.
 
 ---
 
