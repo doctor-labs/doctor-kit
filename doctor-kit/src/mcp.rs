@@ -361,14 +361,15 @@ pub fn serve_verbose(d: &dyn Doctor, verbose: bool) -> io::Result<()> {
             let method = serde_json::from_slice::<Value>(&line)
                 .ok()
                 .and_then(|v| v.get("method").and_then(Value::as_str).map(String::from));
-            eprintln!("mcp <- {}", method.unwrap_or_else(|| "(unparsed)".into()));
+            warnln!("mcp <- {}", method.unwrap_or_else(|| "(unparsed)".into()));
         }
         if let Some(r) = process_line(d, &line) {
             if verbose {
-                eprintln!("mcp -> {} bytes", r.to_string().len());
+                warnln!("mcp -> {} bytes", r.to_string().len());
             }
-            writeln!(out, "{r}")?;
-            out.flush()?;
+            writeln!(out, "{r}")
+                .and_then(|_| out.flush())
+                .map_err(|e| io::Error::new(e.kind(), format!("cannot write to stdout: {e}")))?;
         }
     }
 }

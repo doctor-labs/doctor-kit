@@ -167,9 +167,12 @@ pub fn preflight(d: &dyn Doctor, o: &OutputArgs) -> Result<Preflight, ScanFailur
 /// Print a failed scan: the envelope on stdout when there is one, then stderr verbatim.
 pub fn report_failure(d: &dyn Doctor, f: &ScanFailure) -> u8 {
     if let Some(env) = &f.envelope {
-        print!("{}", d.render_json(env));
+        if let Err(e) = crate::out::say(&d.render_json(env)) {
+            warnln!("error: {e}");
+            return 2;
+        }
     }
-    eprint!("{}", f.stderr);
+    warn!("{}", f.stderr);
     f.exit
 }
 
@@ -262,8 +265,10 @@ pub fn finish_with(
     env.exit_code = code;
     if let Some(p) = &o.sarif {
         if let Err(e) = write_atomic(p, &d.render_sarif(&env)) {
-            eprintln!("error: {}: {e}", p.display());
+            warnln!("error: {}: {e}", p.display());
             code = 2;
+            // The envelope printed below must say what the process will exit with.
+            env.exit_code = 2;
         }
     }
     let text = if o.json {
@@ -287,11 +292,14 @@ pub fn finish_with(
                     .unwrap_or_else(|| render(face, &env, &t))
             }
             Err(e) => {
-                eprintln!("error: {e}");
+                warnln!("error: {e}");
                 return 2;
             }
         }
     };
-    print!("{text}");
+    if let Err(e) = crate::out::say(&text) {
+        warnln!("error: {e}");
+        return 2;
+    }
     code
 }

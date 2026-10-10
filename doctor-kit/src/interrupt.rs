@@ -137,6 +137,8 @@ pub fn interrupted() -> bool {
 pub fn failure<D: Doctor + ?Sized>(d: &D) -> ScanFailure {
     let mut env = failure_envelope(d, "interrupted", "interrupted", Value::Null);
     env.exit_code = EXIT;
+    // The doctor may reshape it (its own data keys, score label); `None` keeps the kit's.
+    let env = d.interrupted_envelope(&env).unwrap_or(env);
     ScanFailure {
         exit: EXIT,
         stderr: "error: interrupted\n".into(),

@@ -35,7 +35,7 @@ pub fn run(doctor: &dyn Doctor, ctx: Ctx, command: Option<&str>, json: bool) -> 
     if let Some(c) = command {
         for line in c.split(';') {
             match s.exec(line)? {
-                Outcome::Text(t) if !t.is_empty() => println!("{t}"),
+                Outcome::Text(t) if !t.is_empty() => sayln!("{t}")?,
                 Outcome::Quit => break,
                 _ => {}
             }
@@ -43,12 +43,12 @@ pub fn run(doctor: &dyn Doctor, ctx: Ctx, command: Option<&str>, json: bool) -> 
         return Ok(s.failed as u8);
     }
     if !json {
-        println!(
+        sayln!(
             "{} {}: interactive. {} findings. Type `help`; Tab completes.",
             doctor.name(),
             doctor.version(),
             s.env.findings.len()
-        );
+        )?;
     }
     let hints = Arc::new(Mutex::new(s.hints()));
     let mut kb = default_emacs_keybindings();
@@ -74,10 +74,10 @@ pub fn run(doctor: &dyn Doctor, ctx: Ctx, command: Option<&str>, json: bool) -> 
         match ed.read_line(&prompt).map_err(|e| e.to_string())? {
             Signal::Success(line) => {
                 match s.exec(&line) {
-                    Ok(Outcome::Text(t)) if !t.is_empty() => println!("{t}"),
+                    Ok(Outcome::Text(t)) if !t.is_empty() => sayln!("{t}")?,
                     Ok(Outcome::Quit) => return Ok(s.failed as u8),
                     Ok(_) => {}
-                    Err(e) => println!("error: {e}"),
+                    Err(e) => sayln!("error: {e}")?,
                 }
                 *hints.lock().unwrap() = s.hints();
             }
