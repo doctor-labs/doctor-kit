@@ -30,7 +30,8 @@ jobs:
           cargo build -p ext-doctor --no-default-features
           cargo build -p ext-doctor --all-features
   # Compatibility test for current users: a project generated from doctor-template (which pins
-  # doctor-kit 0.1) must keep building and passing against this checkout.
+  # doctor-kit 0.1) must keep building and passing. While this checkout is 0.1.x the patch applies;
+  # from 0.2.0 on Cargo ignores it and the job proves the published 0.1 line still builds.
   template:
     runs-on: ubuntu-latest
     steps:
