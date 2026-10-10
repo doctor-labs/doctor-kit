@@ -48,6 +48,15 @@ struct FixArgs {
     /// Also copy the prompt to the clipboard
     #[arg(long)]
     copy: bool,
+    /// Take the findings from this saved `scan --json` report instead of scanning
+    #[arg(long)]
+    from: Option<PathBuf>,
+    /// Hand the prompt to this coding agent instead of printing it
+    #[arg(long, value_parser = clap::builder::PossibleValuesParser::new(crate::fix::AGENTS.map(|a| a.name)))]
+    agent: Option<String>,
+    /// With --agent: skip the agent's approval prompts (the scanned text is untrusted)
+    #[arg(long, requires = "agent")]
+    yolo: bool,
 }
 
 #[derive(Args)]
@@ -159,21 +168,70 @@ pub(crate) fn ctx_from(d: &dyn Doctor, path: &Path, o: &Opts) -> Result<Ctx, Str
 }
 
 fn fix(d: &dyn Doctor, a: FixArgs) -> Result<u8, String> {
-    let env = d
-        .try_scan(&ctx_from(d, &a.path, &a.opts)?)
-        .map_err(|f| f.to_string())?;
+    let env = match &a.from {
+        Some(p) => crate::fix::load_envelope(p)?,
+        None => d
+            .try_scan(&ctx_from(d, &a.path, &a.opts)?)
+            .map_err(|f| f.to_string())?,
+    };
     let hits = crate::fix::select(&env, a.id.as_deref())?;
     if hits.is_empty() {
         eprintln!("nothing to fix");
         return Ok(0);
     }
     let prompt = d.fix_prompt(&env, &hits);
-    println!("{prompt}");
     if a.copy {
+        println!("{prompt}");
         crate::fix::copy(&prompt)?;
         eprintln!("copied to clipboard");
     }
-    Ok(0)
+    let spec = a
+        .agent
+        .as_deref()
+        .and_then(|n| crate::fix::AGENTS.iter().find(|s| s.name == n));
+    match spec {
+        None => {
+            if !a.copy {
+                println!("{prompt}");
+            }
+            Ok(0)
+        }
+        Some(spec) => hand_off(d, spec, &prompt, a.yolo),
+    }
+}
+
+/// Start the agent with the prompt; print the prompt instead when we are inside an agent or the
+/// agent is not installed.
+fn hand_off(
+    d: &dyn Doctor,
+    spec: &crate::fix::AgentSpec,
+    prompt: &str,
+    yolo: bool,
+) -> Result<u8, String> {
+    let me = d.command();
+    if crate::fix::in_agent(|k| std::env::var(k).ok(), &[]) {
+        eprintln!(
+            "{me}: running inside an agent; not launching {}. Prompt follows.",
+            spec.bin
+        );
+        println!("{prompt}");
+        return Ok(0);
+    }
+    if crate::fix::find_on_path(spec.bin, std::env::var_os("PATH")).is_none() {
+        eprintln!(
+            "{me}: {} is not on PATH; printing the prompt instead",
+            spec.bin
+        );
+        println!("{prompt}");
+        return Ok(0);
+    }
+    if yolo {
+        eprintln!(
+            "{me}: WARNING launching {} with approvals skipped ({}); the scanned text is untrusted",
+            spec.bin, spec.bypass
+        );
+    }
+    crate::fix::launch(spec, prompt, yolo).map(|_| 0)
 }
 
 fn install(d: &dyn Doctor, a: InstallArgs) -> Result<u8, String> {

@@ -139,6 +139,17 @@ Options:
       --copy
           Also copy the prompt to the clipboard
 
+      --from <FROM>
+          Take the findings from this saved `scan --json` report instead of scanning
+
+      --agent <AGENT>
+          Hand the prompt to this coding agent instead of printing it
+          
+          [possible values: claude, codex, cursor]
+
+      --yolo
+          With --agent: skip the agent's approval prompts (the scanned text is untrusted)
+
   -h, --help
           Print help (see a summary with '-h')
 --- stderr ---
