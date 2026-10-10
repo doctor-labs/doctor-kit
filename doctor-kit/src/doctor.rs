@@ -212,6 +212,19 @@ pub trait Doctor {
     fn tree(&self, env: &Envelope, ctx: &Ctx) -> Node {
         crate::session::default_tree(env, ctx)
     }
+    /// Lazy children: called (once per scan) when the shell or explorer first enters or lists a node
+    /// that has none, with the node's name path from the root. Return its children, or `None` for a
+    /// leaf. Lets a tool build a big domain tree (image -> directory -> file) on demand instead of in
+    /// [`Doctor::tree`]. `find` searches the nodes loaded so far.
+    fn expand(
+        &self,
+        _env: &Envelope,
+        _ctx: &Ctx,
+        _path: &[String],
+        _node: &Node,
+    ) -> Option<Vec<Node>> {
+        None
+    }
     /// Typed decode of a node for `decode`/`cat` and the detail pane (`None` = generic view).
     fn decode(&self, _node: &Node) -> Option<String> {
         None
