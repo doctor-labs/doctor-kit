@@ -271,7 +271,7 @@ fn ci(d: &dyn Doctor, a: CiArgs) -> Result<u8, String> {
         let ow = if force {
             crate::install::Overwrite::Always
         } else {
-            crate::install::Overwrite::RefuseDifferent
+            d.ci_overwrite()
         };
         println!(
             "wrote {}",

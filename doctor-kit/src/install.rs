@@ -67,6 +67,8 @@ pub enum Overwrite {
     Always,
     /// Replace only identical content (a no-op); refuse a file that differs. `--force` = `Always`.
     RefuseDifferent,
+    /// Refuse any existing file, identical or not.
+    Never,
 }
 
 /// Write `text` to `root/rel...` without following symlinks: a symlinked directory on the path
@@ -106,6 +108,12 @@ pub fn put_safe(
         Ok(m) if !m.is_file() => return Err(format!("{} is not a file", p.display())),
         Ok(_) => match overwrite {
             Overwrite::Always => {}
+            Overwrite::Never => {
+                return Err(format!(
+                    "{} already exists; use --force to overwrite",
+                    p.display()
+                ))
+            }
             Overwrite::RefuseDifferent => {
                 if std::fs::read_to_string(&p).is_ok_and(|cur| cur == text) {
                     return Ok(p);
@@ -163,13 +171,17 @@ fn markers(name: &str) -> (String, String) {
 /// Replace the marked block in place, or append it. Text outside the markers is untouched.
 pub fn upsert_block(existing: &str, name: &str, body: &str) -> String {
     let (s, e) = markers(name);
-    upsert_block_with(existing, &s, &e, body)
+    // The name-based form has always trimmed trailing whitespace of the body.
+    upsert_block_with(existing, &s, &e, body.trim_end())
 }
 
-/// [`upsert_block`] with caller-owned marker lines (the whole `begin` and `end` strings).
+/// [`upsert_block`] with caller-owned marker lines (the whole `begin` and `end` strings) and a
+/// byte-exact body: nothing is trimmed, so a body that ends in a blank line keeps it before the end
+/// marker. A newline is added before the end marker only when the body does not end with one.
 pub fn upsert_block_with(existing: &str, begin: &str, end: &str, body: &str) -> String {
     let (s, e) = (begin, end);
-    let block = format!("{s}\n{}\n{e}\n", body.trim_end());
+    let nl = if body.ends_with('\n') { "" } else { "\n" };
+    let block = format!("{s}\n{body}{nl}{e}\n");
     if let (Some(a), Some(b)) = (existing.find(s), existing.find(e)) {
         if a < b {
             let rest = &existing[b + e.len()..];
@@ -229,7 +241,9 @@ pub fn default_agent_files<D: Doctor + ?Sized>(d: &D, agent: Agent) -> Vec<Agent
             let (begin, end) = markers(&name);
             vec![AgentFile {
                 path: "AGENTS.md".into(),
-                body,
+                // Trailing whitespace trimmed, as the kit's block has always been; an
+                // `agent_files` override gets its body written exactly.
+                body: body.trim_end().to_string(),
                 mode: FileMode::Block { begin, end },
             }]
         }
@@ -346,7 +360,7 @@ pub fn install(
 /// Write the GitHub Actions workflow; returns its path. Refuses to replace a workflow whose
 /// content differs (see [`ci_install_with`]).
 pub fn ci_install(d: &dyn Doctor, root: &Path) -> Result<PathBuf, String> {
-    ci_install_with(d, root, Overwrite::RefuseDifferent)
+    ci_install_with(d, root, d.ci_overwrite())
 }
 
 pub fn ci_install_with(

@@ -186,3 +186,117 @@ fn upsert_block_with_replaces_between_custom_markers_only() {
     let t2 = upsert_block_with(&format!("{t}tail\n"), "[[", "]]", "two");
     assert_eq!(t2, "a\n\n[[\ntwo\n]]\ntail\n");
 }
+
+#[test]
+fn upsert_block_with_keeps_the_body_byte_exact() {
+    // Blank line before the end marker survives; a missing final newline is added once.
+    assert_eq!(upsert_block_with("", "[[", "]]", "a\n\n"), "[[\na\n\n]]\n");
+    assert_eq!(upsert_block_with("", "[[", "]]", "a\n"), "[[\na\n]]\n");
+    assert_eq!(upsert_block_with("", "[[", "]]", "a"), "[[\na\n]]\n");
+    assert_eq!(
+        upsert_block_with("", "[[", "]]", "  a  \n \n"),
+        "[[\n  a  \n \n]]\n"
+    );
+    // Replacing keeps text outside and is idempotent.
+    let once = upsert_block_with("top\n", "[[", "]]", "a\n\n");
+    assert_eq!(upsert_block_with(&once, "[[", "]]", "a\n\n"), once);
+    // The name-based form still trims trailing whitespace (0.2.0 bytes).
+    assert_eq!(
+        doctor_kit::install::upsert_block("", "n", "a\n\n\n"),
+        "<!-- n:start -->\na\n<!-- n:end -->\n"
+    );
+}
+
+#[test]
+fn default_agents_block_is_trimmed_but_an_override_is_exact() {
+    struct Padded;
+    impl Doctor for Padded {
+        fn name(&self) -> &str {
+            "pad"
+        }
+        fn version(&self) -> &str {
+            "1"
+        }
+        fn categories(&self) -> Vec<&'static str> {
+            vec![]
+        }
+        fn checks(&self) -> Vec<Box<dyn Check>> {
+            vec![]
+        }
+        fn skill_body(&self) -> String {
+            "body\n\n\n".into()
+        }
+    }
+    let root = tmp("pad");
+    install(&Padded, &root, Some(Agent::Codex), false).unwrap();
+    assert_eq!(
+        std::fs::read_to_string(root.join("AGENTS.md")).unwrap(),
+        "<!-- pad:start -->\nbody\n<!-- pad:end -->\n"
+    );
+    struct Exact;
+    impl Doctor for Exact {
+        fn name(&self) -> &str {
+            "ex"
+        }
+        fn version(&self) -> &str {
+            "1"
+        }
+        fn categories(&self) -> Vec<&'static str> {
+            vec![]
+        }
+        fn checks(&self) -> Vec<Box<dyn Check>> {
+            vec![]
+        }
+        fn agent_files(&self, _: Agent) -> Vec<AgentFile> {
+            vec![AgentFile {
+                path: "AGENTS.md".into(),
+                body: "text\n\n".into(),
+                mode: FileMode::Block {
+                    begin: "<<".into(),
+                    end: ">>".into(),
+                },
+            }]
+        }
+    }
+    let root = tmp("exact");
+    install(&Exact, &root, Some(Agent::Codex), false).unwrap();
+    assert_eq!(
+        std::fs::read_to_string(root.join("AGENTS.md")).unwrap(),
+        "<<\ntext\n\n>>\n"
+    );
+}
+
+#[test]
+fn ci_overwrite_policy_hook_drives_ci_install() {
+    struct P(Overwrite);
+    impl Doctor for P {
+        fn name(&self) -> &str {
+            "p"
+        }
+        fn version(&self) -> &str {
+            "1"
+        }
+        fn categories(&self) -> Vec<&'static str> {
+            vec![]
+        }
+        fn checks(&self) -> Vec<Box<dyn Check>> {
+            vec![]
+        }
+        fn ci_overwrite(&self) -> Overwrite {
+            self.0
+        }
+    }
+    let root = tmp("policy");
+    let wf = ci_install(&P(Overwrite::Never), &root).unwrap();
+    assert!(ci_install(&P(Overwrite::Never), &root)
+        .unwrap_err()
+        .contains("already exists"));
+    std::fs::write(&wf, "mine").unwrap();
+    assert!(ci_install(&P(Overwrite::RefuseDifferent), &root)
+        .unwrap_err()
+        .contains("differs"));
+    ci_install(&P(Overwrite::Always), &root).unwrap();
+    assert_ne!(std::fs::read_to_string(&wf).unwrap(), "mine");
+    // The default hook is the 0.2.0 policy.
+    assert_eq!(D.ci_overwrite(), Overwrite::RefuseDifferent);
+}

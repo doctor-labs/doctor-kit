@@ -333,3 +333,41 @@ fn audit_uses_the_tools_report_and_never_fails_on_findings() {
     let (_, face, _) = run(&["scan", "--subject", "bad", "--headless"]);
     assert!(!face.starts_with("AUDIT"));
 }
+
+#[test]
+fn ci_install_overwrite_policy_is_the_tools() {
+    let t = std::env::temp_dir().join(format!("ext-ci-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&t);
+    std::fs::create_dir_all(&t).unwrap();
+    let ci = |policy: Option<&str>, extra: &[&str]| {
+        let mut c = Command::new(env!("CARGO_BIN_EXE_ext-doctor"));
+        c.args(["ci", "install", "--dir", t.to_str().unwrap()])
+            .args(extra);
+        if let Some(p) = policy {
+            c.env("EXT_DOCTOR_CI", p);
+        }
+        c.status().unwrap().code()
+    };
+    let wf = t.join(".github/workflows/ext-doctor.yml");
+    assert_eq!(ci(None, &[]), Some(0));
+    assert_eq!(ci(None, &[]), Some(0), "default: identical is a no-op");
+    assert_eq!(
+        ci(Some("never"), &[]),
+        Some(2),
+        "never: even identical is refused"
+    );
+    assert_eq!(
+        ci(Some("never"), &["--force"]),
+        Some(0),
+        "--force overrides any policy"
+    );
+    std::fs::write(&wf, "custom").unwrap();
+    assert_eq!(ci(None, &[]), Some(2), "default: differing is refused");
+    assert_eq!(std::fs::read_to_string(&wf).unwrap(), "custom");
+    assert_eq!(
+        ci(Some("always"), &[]),
+        Some(0),
+        "always: the old replace-it behaviour"
+    );
+    assert_ne!(std::fs::read_to_string(&wf).unwrap(), "custom");
+}

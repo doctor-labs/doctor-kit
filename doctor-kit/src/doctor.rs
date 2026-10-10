@@ -180,6 +180,12 @@ pub trait Doctor {
             self.name()
         )
     }
+    /// What `ci install` does with an existing workflow file (without `--force`). Default
+    /// `RefuseDifferent` (identical content is a no-op); `Always` = replace (0.1 behaviour);
+    /// `Never` = refuse any existing file.
+    fn ci_overwrite(&self) -> crate::install::Overwrite {
+        crate::install::Overwrite::RefuseDifferent
+    }
     /// The whole GitHub Actions workflow written by `ci install`.
     fn ci_workflow(&self) -> String {
         crate::install::default_workflow(&self.command(), &self.ci_setup_steps())
