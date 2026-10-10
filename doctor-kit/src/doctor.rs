@@ -150,6 +150,11 @@ pub trait Doctor {
     fn skill_body(&self) -> String {
         crate::install::default_skill(&self.command(), &self.categories())
     }
+    /// The files `install` writes for one agent. Default: the skill / Cursor rule / AGENTS.md block
+    /// built from [`Doctor::skill_body`]. Override for exact bodies or caller-owned markers.
+    fn agent_files(&self, agent: crate::install::Agent) -> Vec<crate::install::AgentFile> {
+        crate::install::default_agent_files(self, agent)
+    }
     /// YAML steps (unindented, one `- ` list) that make the tool available in CI.
     fn ci_setup_steps(&self) -> String {
         format!(

@@ -179,6 +179,9 @@ Options:
       --agent-hooks
           Also add a Claude Code PostToolUse hook that scans changed files after edits
 
+      --print-only
+          Print the files instead of writing them
+
   -h, --help
           Print help (see a summary with '-h')
 --- stderr ---
@@ -208,6 +211,7 @@ Usage: example-doctor ci install [OPTIONS]
 Options:
       --dir <DIR>  [default: .]
       --print      Print the workflow instead of writing it
+      --force      Replace an existing workflow whose content differs
   -h, --help       Print help
 --- stderr ---
 
