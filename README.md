@@ -4,6 +4,7 @@
 
 [![CI](https://github.com/doctor-labs/doctor-kit/actions/workflows/ci.yml/badge.svg)](https://github.com/doctor-labs/doctor-kit/actions/workflows/ci.yml)
 ![license MIT](https://img.shields.io/badge/license-MIT-blue)
+[![crates.io](https://img.shields.io/crates/v/doctor-kit)](https://crates.io/crates/doctor-kit)
 ![contract doctor/1](https://img.shields.io/badge/contract-doctor%2F1-19c3ab)
 
 **The Rust skeleton for building a doctor: implement a few checks and get a scored `doctor/1` CLI.**
@@ -28,11 +29,11 @@ info      docs.no-readme         .                   No README at the root
 
 ## Install
 
-Not on crates.io yet (crates.io release 0.1.0 coming). Until then, depend on the git repo:
+Published on [crates.io](https://crates.io/crates/doctor-kit):
 
 ```toml
 [dependencies]
-doctor-kit = { git = "https://github.com/doctor-labs/doctor-kit" }
+doctor-kit = "0.1"
 # optional features: repl (shell), tui (explore), mcp (mcp)
 ```
 

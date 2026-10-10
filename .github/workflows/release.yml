@@ -1,0 +1,33 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+jobs:
+  crates-io:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write # crates.io trusted publishing (configured for release.yml)
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Tag matches doctor-kit version
+        run: |
+          want="${GITHUB_REF_NAME#v}"
+          have=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name=="doctor-kit") | .version')
+          [ "$want" = "$have" ] || { echo "::error::tag $GITHUB_REF_NAME != doctor-kit $have"; exit 1; }
+      - name: Exchange the OIDC identity for a short-lived crates.io token
+        id: auth
+        uses: rust-lang/crates-io-auth-action@v1
+      - name: Publish to crates.io
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          code=$(curl -s -o /dev/null -w '%{http_code}' -A "doctor-kit-release (github.com/doctor-labs/doctor-kit)" "https://crates.io/api/v1/crates/doctor-kit/$version")
+          if [ "$code" = "200" ]; then echo "::notice::doctor-kit $version already on crates.io"; exit 0; fi
+          cargo publish -p doctor-kit
