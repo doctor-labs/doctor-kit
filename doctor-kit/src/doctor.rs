@@ -271,6 +271,7 @@ pub trait Doctor {
                 skipped.push(c.id());
                 continue;
             }
+            crate::interrupt::check(self)?;
             ran += 1;
             // A panicking check becomes a high-severity finding; the scan continues.
             let r = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| c.run(ctx))) {

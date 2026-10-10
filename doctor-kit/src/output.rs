@@ -221,7 +221,7 @@ pub fn finish(
     r: Result<Envelope, ScanFailure>,
     o: &OutputArgs,
 ) -> u8 {
-    let mut env = match r {
+    let mut env = match r.and_then(|e| crate::interrupt::check(d).map(|_| e)) {
         Ok(e) => e,
         Err(f) => return report_failure(d, &f),
     };

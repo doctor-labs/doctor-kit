@@ -272,3 +272,21 @@ fn tag_checks_false_leaves_extra_empty() {
     let env = Untagged.scan(&Ctx::detached(Config::default(), Severity::High));
     assert!(env.findings[0].extra.is_empty());
 }
+
+#[test]
+fn interrupt_failure_shape_and_inert_without_a_signal() {
+    use doctor_kit::interrupt;
+    let d = Dev {
+        fail: false,
+        fps: vec![],
+    };
+    assert!(!interrupt::interrupted());
+    assert!(interrupt::check(&d).is_ok());
+    let f = interrupt::failure(&d);
+    assert_eq!((f.exit, f.stderr.as_str()), (130, "error: interrupted\n"));
+    let e = f.envelope.unwrap();
+    assert_eq!(
+        (e.exit_code, e.data["error"]["kind"].as_str()),
+        (130, Some("interrupted"))
+    );
+}

@@ -312,6 +312,7 @@ version = "0.1.1"
 dependencies = [
  "clap",
  "doctor-core",
+ "libc",
  "owo-colors",
  "ratatui",
  "reedline",
