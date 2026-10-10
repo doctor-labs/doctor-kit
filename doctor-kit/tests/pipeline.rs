@@ -418,3 +418,174 @@ fn shell_replies_and_the_session_tree_are_sanitized_too() {
         );
     }
 }
+
+mod notes {
+    use super::*;
+    use doctor_kit::face::{notes_of, render_with_notes};
+    use doctor_kit::session::Outcome;
+    use doctor_kit::{Face, Note, NoteLevel, Session, Theme};
+
+    fn env(gaps: usize, data: Value) -> doctor_core::Envelope {
+        doctor_core::Envelope::new(
+            "t",
+            "1",
+            0,
+            Score::new(80, "t/1", gaps),
+            vec![fnd("r.a", "1", Severity::Low)],
+            data,
+        )
+    }
+
+    #[test]
+    fn default_notes_are_the_banner_then_data_notes_with_levels() {
+        assert!(notes_of(&env(0, json!({}))).is_empty(), "no gaps, no notes");
+        let n = notes_of(&env(
+            3,
+            json!({"notes": ["plain string", {"level": "error", "text": "bad"}, {"level": "info", "text": "fyi"}, {"text": 5}, 7]}),
+        ));
+        let got: Vec<(NoteLevel, &str)> = n.iter().map(|n| (n.level, n.text.as_str())).collect();
+        assert_eq!(got[0].0, NoteLevel::Warn);
+        assert!(got[0].1.starts_with("INCOMPLETE: 3 coverage gap(s)"));
+        assert_eq!(
+            got[1..],
+            [
+                (NoteLevel::Warn, "plain string"),
+                (NoteLevel::Error, "bad"),
+                (NoteLevel::Info, "fyi")
+            ]
+        );
+    }
+
+    #[test]
+    fn every_face_puts_sanitized_notes_before_the_header_and_findings() {
+        let notes = vec![
+            Note {
+                level: NoteLevel::Error,
+                text: "TRUNCATED: walk\u{1b}[31m did not see the whole card\u{202e}".into(),
+            },
+            Note {
+                level: NoteLevel::Info,
+                text: "TAR stopped".into(),
+            },
+        ];
+        let mut t = Theme::default();
+        t.enabled = false;
+        for face in [Face::Plain, Face::Compact, Face::Rich] {
+            let out = render_with_notes(face, &env(0, json!({})), &t, &notes);
+            assert_clean(&out, &format!("{face:?}"));
+            let (a, b, f) = (
+                out.find("ERROR: TRUNCATED: walk[31m did not see the whole card")
+                    .or_else(|| out.find("ERROR: TRUNCATED: walk"))
+                    .unwrap(),
+                out.find("NOTE: TAR stopped").unwrap(),
+                out.find("r.a").unwrap(),
+            );
+            assert!(a < b && b < f, "{face:?}: {out}");
+        }
+        // No notes: identical to the render without the hook.
+        let plain = render_with_notes(Face::Plain, &env(0, json!({})), &t, &[]);
+        assert_eq!(
+            plain,
+            doctor_kit::face::render(Face::Plain, &env(0, json!({})), &t)
+        );
+    }
+
+    struct Gappy;
+    impl Doctor for Gappy {
+        fn name(&self) -> &str {
+            "g"
+        }
+        fn version(&self) -> &str {
+            "1"
+        }
+        fn categories(&self) -> Vec<&'static str> {
+            vec![]
+        }
+        fn checks(&self) -> Vec<Box<dyn Check>> {
+            vec![]
+        }
+        fn target(&self) -> TargetKind {
+            TargetKind::Detached
+        }
+        fn collect(&self, _: &Ctx) -> Result<Collected, ScanFailure> {
+            Ok(Collected {
+                findings: vec![],
+                data: json!({"notes": ["TRUNCATED: partial"]}),
+                gaps: 1,
+            })
+        }
+        fn score_collected(&self, c: &Collected, _: &Ctx) -> Option<Score> {
+            Some(Score::new(90, "g/1", c.gaps))
+        }
+    }
+
+    #[test]
+    fn shell_shows_notes_at_the_root_and_in_json_but_not_below() {
+        let d = Gappy;
+        let mut s = Session::new(&d, Ctx::detached(Config::default(), Severity::High));
+        let t = |s: &mut Session, l: &str| match s.exec(l).unwrap() {
+            Outcome::Text(t) => t,
+            Outcome::Quit => String::new(),
+        };
+        let ls = t(&mut s, "ls");
+        assert!(
+            ls.starts_with("WARNING: INCOMPLETE: 1 coverage gap(s)"),
+            "{ls}"
+        );
+        assert!(ls.contains("WARNING: TRUNCATED: partial"));
+        let rec: Value = serde_json::from_str(&t(&mut s, "info --json")).unwrap();
+        assert_eq!(rec["data"]["notes"][1]["text"], "TRUNCATED: partial");
+        assert_eq!(rec["data"]["notes"][0]["level"], "warn");
+        // a command about one node does not repeat the banner
+        assert!(!t(&mut s, "pwd").contains("WARNING"));
+        // after a rescan the notes are recomputed
+        assert!(t(&mut s, "scan").contains("TRUNCATED: partial"));
+    }
+
+    #[test]
+    fn a_tool_that_overrides_notes_owns_them() {
+        struct Quiet;
+        impl Doctor for Quiet {
+            fn name(&self) -> &str {
+                "q"
+            }
+            fn version(&self) -> &str {
+                "1"
+            }
+            fn categories(&self) -> Vec<&'static str> {
+                vec![]
+            }
+            fn checks(&self) -> Vec<Box<dyn Check>> {
+                vec![]
+            }
+            fn target(&self) -> TargetKind {
+                TargetKind::Detached
+            }
+            fn collect(&self, _: &Ctx) -> Result<Collected, ScanFailure> {
+                Ok(Collected {
+                    findings: vec![],
+                    data: json!({}),
+                    gaps: 4,
+                })
+            }
+            fn score_collected(&self, c: &Collected, _: &Ctx) -> Option<Score> {
+                Some(Score::new(90, "q/1", c.gaps))
+            }
+            fn notes(&self, _: &doctor_core::Envelope) -> Vec<Note> {
+                vec![Note {
+                    level: NoteLevel::Info,
+                    text: "mine".into(),
+                }]
+            }
+        }
+        let d = Quiet;
+        let mut s = Session::new(&d, Ctx::detached(Config::default(), Severity::High));
+        let Outcome::Text(ls) = s.exec("ls").unwrap() else {
+            panic!()
+        };
+        assert!(
+            ls.starts_with("NOTE: mine") && !ls.contains("INCOMPLETE"),
+            "{ls}"
+        );
+    }
+}

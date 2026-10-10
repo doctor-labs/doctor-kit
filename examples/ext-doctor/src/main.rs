@@ -57,6 +57,20 @@ impl Doctor for Ext {
     fn default_fail_on(&self) -> Severity {
         Severity::Critical
     }
+    fn score_collected(&self, c: &Collected, _: &Ctx) -> Option<Score> {
+        Some(Score::new(
+            100 - 10 * c.findings.len().min(10) as u8,
+            "ext/1",
+            c.gaps,
+        ))
+    }
+    /// `EXT_DOCTOR_NONOTES` set: the tool takes over and shows no notes at all (no banner).
+    fn notes(&self, env: &Envelope) -> Vec<doctor_kit::Note> {
+        if std::env::var_os("EXT_DOCTOR_NONOTES").is_some() {
+            return vec![];
+        }
+        doctor_kit::face::notes_of(env)
+    }
     fn score(&self, f: &[Finding], _: &Ctx) -> Option<Score> {
         Some(Score::new(100 - 10 * f.len().min(10) as u8, "ext/1", 0))
     }
@@ -213,6 +227,15 @@ impl Doctor for Ext {
                 return Err(ScanFailure::new("subject unreachable").with_envelope(e));
             }
             "bad" => findings.push(finding("ext.bad", Severity::Critical, "fp-bad")),
+            "gappy" => {
+                return Ok(Collected {
+                    findings: vec![finding("ext.meh", Severity::Low, "fp-meh")],
+                    data: json!({"subject": "gappy", "notes": [
+                        "TRUNCATED: walk did not see the whole subject",
+                        {"level": "info", "text": "stopped at the second archive"}]}),
+                    gaps: 2,
+                })
+            }
             "meh" => findings.push(finding("ext.meh", Severity::Low, "fp-meh")),
             _ => {}
         }
