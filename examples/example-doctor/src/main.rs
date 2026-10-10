@@ -1,6 +1,6 @@
 //! A toy doctor: scans a directory of text files. This file is the whole point of doctor-kit.
 use doctor_core::{Evidence, Severity};
-use doctor_kit::{finding, Check, CheckResult, Ctx, Doctor};
+use doctor_kit::{finding, Action, Check, CheckResult, Command, Ctx, Doctor, Node, Reply, Session};
 
 struct Toy;
 
@@ -36,7 +36,7 @@ impl Doctor for Toy {
                 id: "hygiene.todo",
                 cat: "hygiene",
                 sev: Severity::Low,
-                hit: |l| l.contains("TODO") || l.contains("FIXME"),
+                hit: todo,
                 msg: "Unresolved TODO/FIXME",
                 fix: "Resolve it or file an issue.",
             }),
@@ -44,8 +44,98 @@ impl Doctor for Toy {
             Box::new(NoReadme),
         ]
     }
+
+    /// Findings tree plus one rich `files` branch: the sim-style pattern. Each file node carries
+    /// metadata, raw head bytes for the hex pane, and a gated action.
+    fn tree(&self, env: &doctor_core::Envelope, ctx: &Ctx) -> Node {
+        let mut t = doctor_kit::session::default_tree(env, ctx);
+        let mut files = Node::new("files", "dir", format!("{} files", ctx.files.len()));
+        for rel in &ctx.files {
+            let bytes = std::fs::read(ctx.root.join(rel)).unwrap_or_default();
+            let text = String::from_utf8_lossy(&bytes);
+            let todos = text.lines().filter(|l| todo(l)).count();
+            let mut n = Node::new(
+                &rel.to_string_lossy(),
+                "file",
+                format!("{} bytes, {todos} TODO", bytes.len()),
+            )
+            .meta("path", rel.to_string_lossy().to_string())
+            .meta("bytes", bytes.len())
+            .meta("lines", text.lines().count())
+            .meta("todo_lines", todos)
+            .raw(bytes.iter().take(64).copied().collect());
+            if todos > 0 {
+                n = n.action(Action::new(
+                    "strip-todos",
+                    "delete TODO/FIXME lines from the file",
+                    true,
+                ));
+            }
+            files.children.push(n);
+        }
+        t.children.push(files);
+        t
+    }
+
+    fn act(
+        &self,
+        ctx: &Ctx,
+        node: &Node,
+        action: &str,
+        _args: &[String],
+        apply: bool,
+    ) -> Result<String, String> {
+        let rel = node.meta["path"].as_str().ok_or("not a file")?;
+        let path = ctx.root.join(rel);
+        let text = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
+        match action {
+            "strip-todos" => {
+                let (gone, kept): (Vec<&str>, Vec<&str>) = text.lines().partition(|l| todo(l));
+                if !apply {
+                    return Ok(format!(
+                        "would delete {} line(s) from {rel}: {gone:?}",
+                        gone.len()
+                    ));
+                }
+                let mut out = kept.join("\n");
+                if text.ends_with('\n') {
+                    out.push('\n');
+                }
+                std::fs::write(&path, out).map_err(|e| e.to_string())?;
+                Ok(format!(
+                    "deleted {} line(s) from {rel}; `scan` to re-check",
+                    gone.len()
+                ))
+            }
+            a => Err(format!("unknown action {a}")),
+        }
+    }
+
+    fn commands(&self) -> Vec<Command> {
+        vec![Command {
+            name: "read",
+            help: "print a file node's text",
+            flags: &[],
+            run: read,
+        }]
+    }
 }
 
+fn read(s: &mut Session, a: &[String]) -> Result<Reply, String> {
+    let rel = s.node(a.first().map(String::as_str))?.meta["path"]
+        .as_str()
+        .ok_or("not a file node")?
+        .to_string();
+    let text = std::fs::read_to_string(s.ctx.root.join(&rel)).map_err(|e| e.to_string())?;
+    Ok(Reply::new(
+        text.clone(),
+        serde_json::json!({"path": rel, "text": text}),
+    ))
+}
+
+fn todo(l: &str) -> bool {
+    l.contains("TODO") || l.contains("FIXME")
+}
 fn aws_key(l: &str) -> bool {
     l.find("AKIA").is_some_and(|i| {
         l[i + 4..]
