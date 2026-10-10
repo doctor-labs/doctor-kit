@@ -1,4 +1,5 @@
 use crate::check::{finding, Check, CheckResult, Ctx};
+use crate::face::Face;
 use crate::node::Node;
 use crate::session::Command;
 use crate::theme::Theme;
@@ -253,6 +254,13 @@ pub trait Doctor {
     /// newline. The kit never changes a finding's fingerprint, whatever the serialisation.
     fn render_json(&self, env: &Envelope) -> String {
         serde_json::to_string_pretty(env).unwrap() + "\n"
+    }
+    /// The report `finish` prints for people (not `--json`/`--score`). `None` (default): the kit
+    /// face. A tool with its own report (a per-image audit, a file list) returns it here and still
+    /// gets the baseline, SARIF and exit pipeline. `env` is already sanitized; `face` and `theme`
+    /// are what the user asked for.
+    fn render_human(&self, _env: &Envelope, _face: &Face, _theme: &Theme) -> Option<String> {
+        None
     }
     /// The tools `mcp` offers. `None` (default): the built-in `scan` and `fix`. `Some(..)`
     /// REPLACES them (so `fix` is not reachable unless listed). The kit owns the stdio loop.

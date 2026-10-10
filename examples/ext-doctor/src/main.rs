@@ -6,8 +6,8 @@ use clap::{Arg, ArgAction, ArgMatches, Command};
 use doctor_core::{Envelope, Finding, Location, LocationKind, Score, Severity};
 use doctor_kit::mcp::{exec_self, ExecOpts};
 use doctor_kit::{
-    failure_envelope, finish, preflight, Check, Collected, Ctx, Doctor, ExtCommand, Extensions,
-    Meta, OutputArgs, ScanFailure, TargetKind,
+    failure_envelope, finish_with, preflight, Check, Collected, Ctx, Doctor, ExtCommand,
+    Extensions, FinishOpts, Meta, OutputArgs, ScanFailure, TargetKind,
 };
 use doctor_kit::{McpTool, McpWire, Protocol};
 use serde_json::json;
@@ -15,6 +15,8 @@ use serde_json::json;
 struct Ext {
     profile: String,
     subject: String,
+    /// `audit`: print the tool's own report instead of the kit face.
+    human: bool,
 }
 
 fn finding(id: &str, sev: Severity, fp: &str) -> Finding {
@@ -126,6 +128,17 @@ impl Doctor for Ext {
             blank_line_is_parse_error: true,
         }
     }
+    fn render_human(
+        &self,
+        env: &Envelope,
+        _: &doctor_kit::Face,
+        _: &doctor_kit::Theme,
+    ) -> Option<String> {
+        self.human.then(|| {
+            let ids: Vec<&str> = env.findings.iter().map(|f| f.id.as_str()).collect();
+            format!("AUDIT {} findings: {}\n", env.findings.len(), ids.join(","))
+        })
+    }
     fn render_json(&self, env: &Envelope) -> String {
         serde_json::to_string(&env.to_value()).unwrap() + "\n"
     }
@@ -160,7 +173,7 @@ fn scan_cmd() -> Command {
         .args(OutputArgs::args_with(Severity::Critical))
 }
 
-fn scan(d: &Ext, m: &ArgMatches) -> Result<u8, String> {
+fn report(d: &Ext, m: &ArgMatches, audit: bool) -> Result<u8, String> {
     let o = OutputArgs::from_matches(m, d);
     let pre = match preflight(d, &o) {
         Ok(p) => p,
@@ -169,13 +182,20 @@ fn scan(d: &Ext, m: &ArgMatches) -> Result<u8, String> {
     let me = Ext {
         profile: d.profile.clone(),
         subject: m.get_one::<String>("subject").cloned().unwrap_or_default(),
+        human: audit,
     };
-    Ok(finish(
-        &me,
-        pre,
-        me.try_scan(&Ctx::detached(Default::default(), o.fail_on)),
-        &o,
-    ))
+    // `audit` is report-only: findings never fail it, `scan` keeps its --fail-on.
+    let opts = FinishOpts { never_fail: audit };
+    let r = me.try_scan(&Ctx::detached(Default::default(), o.fail_on));
+    Ok(finish_with(&me, pre, r, &o, &opts))
+}
+
+fn scan(d: &Ext, m: &ArgMatches) -> Result<u8, String> {
+    report(d, m, false)
+}
+
+fn audit(d: &Ext, m: &ArgMatches) -> Result<u8, String> {
+    report(d, m, true)
 }
 
 fn probe(d: &Ext, m: &ArgMatches) -> Result<u8, String> {
@@ -202,6 +222,13 @@ fn main() -> std::process::ExitCode {
             ExtCommand {
                 command: scan_cmd(),
                 run: scan,
+            },
+            ExtCommand {
+                command: Command::new("audit")
+                    .about("Report-only inspection: never fails on findings")
+                    .arg(Arg::new("subject").long("subject").default_value("ok"))
+                    .args(OutputArgs::args_with(Severity::Critical)),
+                run: audit,
             },
             ExtCommand {
                 command: Command::new("flood").hide(true),
@@ -236,6 +263,7 @@ fn main() -> std::process::ExitCode {
     let probe_doctor = Ext {
         profile: String::new(),
         subject: String::new(),
+        human: false,
     };
     doctor_kit::run_with(Meta::of(&probe_doctor), ext, |m| {
         Ok(Ext {
@@ -244,6 +272,7 @@ fn main() -> std::process::ExitCode {
                 .cloned()
                 .unwrap_or_else(|| "default".into()),
             subject: String::new(),
+            human: false,
         })
     })
 }

@@ -268,3 +268,51 @@ mod custom_mcp {
         );
     }
 }
+
+#[test]
+fn audit_uses_the_tools_report_and_never_fails_on_findings() {
+    // The tool's own human report replaces the kit face, findings do not gate (exit 0).
+    let (c, out, _) = run(&["audit", "--subject", "bad"]);
+    assert_eq!((c, out.as_str()), (0, "AUDIT 1 findings: ext.bad\n"));
+    // --json is still the kit's (tool-rendered) envelope; the exit stays 0.
+    let (c, out, _) = run(&["audit", "--subject", "bad", "--json"]);
+    assert_eq!(c, 0);
+    let v: serde_json::Value = serde_json::from_str(&out).unwrap();
+    assert_eq!(
+        (
+            v["exit_code"].as_u64(),
+            v["findings"].as_array().unwrap().len()
+        ),
+        (Some(0), 1)
+    );
+    // Even a baseline never gates a report-only command.
+    let d = std::env::temp_dir().join(format!("ext-audit-{}", std::process::id()));
+    std::fs::create_dir_all(&d).unwrap();
+    let base = d.join("b.json");
+    std::fs::write(&base, run(&["scan", "--subject", "ok", "--json"]).1).unwrap();
+    assert_eq!(
+        run(&[
+            "audit",
+            "--subject",
+            "bad",
+            "--baseline",
+            base.to_str().unwrap()
+        ])
+        .0,
+        0
+    );
+    // scan (same pipeline, no never_fail) still gates and keeps the kit face
+    assert_eq!(
+        run(&[
+            "scan",
+            "--subject",
+            "bad",
+            "--baseline",
+            base.to_str().unwrap()
+        ])
+        .0,
+        3
+    );
+    let (_, face, _) = run(&["scan", "--subject", "bad", "--headless"]);
+    assert!(!face.starts_with("AUDIT"));
+}
