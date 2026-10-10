@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.2.2
+
+Patch release from the sim-doctor migration. Source-compatible with 0.2.0 and 0.2.1: no field is added to a
+public struct, new behaviour sits behind defaulted hooks or new functions, and `compat_020.rs` /
+`compat_021.rs` compile the earlier shapes.
+
+### Fixed (contract)
+- A closed stdout (`tool scan | head`) no longer panics (exit 101): every output path of `scan`, `fix`,
+  `install --print-only`, `ci install --print`, `shell` and `mcp` reports `error: cannot write to stdout`
+  and exits 2. Writes to a closed stderr are ignored instead of panicking.
+- A failed `--sarif` write: the printed envelope's `exit_code` is now 2, the real process exit.
+- `explore` without a TTY is a clear error (exit 2), not a panic.
+- MCP: a request with neither an `id` nor a string `method` is answered with -32600 and `"id": null`
+  (JSON-RPC 2.0); notifications stay silent.
+
+### Added
+- `Doctor::interrupted_envelope(&Envelope) -> Option<Envelope>`: the tool's shape for the Ctrl-C envelope.
+- `mcp::exec_self_with` + `ExecFailure` (kind, stdout, stderr, code, signal, limits): the tool words every
+  runner error; `mcp::fill` with `{x}`, `{x_json}` (JSON literal) and `{x_esc}` (escaped) placeholders in
+  the MCP texts, so a tool name with quotes still yields valid JSON.
+- Notes in the human report: `Note`, `NoteLevel`, `Doctor::notes`, `face::{notes_of, render_with_notes}`.
+  An `INCOMPLETE` banner when `score.coverage_gaps > 0` and `data.notes` are shown first by the faces,
+  `shell` and `explore`; never in `--json` or SARIF.
+- `out::say` and the `say!`/`sayln!` macros (fallible stdout).
+
 ## 0.2.1
 
 Patch release for the android-doctor and ble-doctor migrations. Source-compatible with 0.2.0: no field is
