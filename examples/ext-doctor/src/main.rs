@@ -4,10 +4,12 @@
 //! reaches the doctor's constructor, compact JSON, a custom exit code for usage errors.
 use clap::{Arg, ArgAction, ArgMatches, Command};
 use doctor_core::{Envelope, Finding, Location, LocationKind, Score, Severity};
+use doctor_kit::mcp::{exec_self, ExecOpts};
 use doctor_kit::{
     failure_envelope, finish, preflight, Check, Collected, Ctx, Doctor, ExtCommand, Extensions,
     Meta, OutputArgs, ScanFailure, TargetKind,
 };
+use doctor_kit::{McpTool, McpWire, Protocol};
 use serde_json::json;
 
 struct Ext {
@@ -55,6 +57,74 @@ impl Doctor for Ext {
     }
     fn score(&self, f: &[Finding], _: &Ctx) -> Option<Score> {
         Some(Score::new(100 - 10 * f.len().min(10) as u8, "ext/1", 0))
+    }
+    /// With `EXT_DOCTOR_MCP` set: own tools that re-run this binary (the kit's `scan`/`fix` are
+    /// replaced), and the wire texts of an older server.
+    fn mcp_tools(&self) -> Option<Vec<McpTool>> {
+        std::env::var_os("EXT_DOCTOR_MCP")?;
+        let exec = |args: Vec<String>, o: ExecOpts| exec_self(&args, &o);
+        Some(vec![
+            McpTool {
+                name: "inspect".into(),
+                description: "Inspect a subject".into(),
+                schema: json!({"type": "object", "properties": {"subject": {"type": "string"}}}),
+                call: Box::new(move |a| {
+                    let s = a.get("subject").and_then(|v| v.as_str()).unwrap_or("ok");
+                    if s.starts_with('-') {
+                        return Err(format!("{{\"error\":\"bad subject {s}\"}}"));
+                    }
+                    let args = ["scan", "--subject", s, "--json"]
+                        .map(String::from)
+                        .to_vec();
+                    exec(
+                        args,
+                        ExecOpts {
+                            ok_codes: vec![0, 1, 3],
+                            ..Default::default()
+                        },
+                    )
+                }),
+            },
+            McpTool {
+                name: "hang".into(),
+                description: "Never returns".into(),
+                schema: json!({"type": "object"}),
+                call: Box::new(move |_| {
+                    exec(
+                        vec!["wait".into()],
+                        ExecOpts {
+                            timeout: Some(std::time::Duration::from_millis(300)),
+                            ..Default::default()
+                        },
+                    )
+                }),
+            },
+            McpTool {
+                name: "flood".into(),
+                description: "Too much output".into(),
+                schema: json!({"type": "object"}),
+                call: Box::new(move |_| {
+                    exec(
+                        vec!["flood".into()],
+                        ExecOpts {
+                            max_bytes: 1000,
+                            ..Default::default()
+                        },
+                    )
+                }),
+            },
+        ])
+    }
+    fn mcp_wire(&self) -> McpWire {
+        if std::env::var_os("EXT_DOCTOR_MCP").is_none() {
+            return McpWire::default();
+        }
+        McpWire {
+            protocol: Protocol::EchoClient,
+            parse_error: "parse error".into(),
+            method_not_found: "method not found".into(),
+            blank_line_is_parse_error: true,
+        }
     }
     fn render_json(&self, env: &Envelope) -> String {
         serde_json::to_string(&env.to_value()).unwrap() + "\n"
@@ -132,6 +202,13 @@ fn main() -> std::process::ExitCode {
             ExtCommand {
                 command: scan_cmd(),
                 run: scan,
+            },
+            ExtCommand {
+                command: Command::new("flood").hide(true),
+                run: |_, _| {
+                    print!("{}", "x".repeat(1 << 20));
+                    Ok(0)
+                },
             },
             ExtCommand {
                 command: Command::new("wait").about("Wait for Ctrl-C"),

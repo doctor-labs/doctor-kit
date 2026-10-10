@@ -5,7 +5,149 @@ use crate::cli::{ctx_from, Opts};
 use crate::doctor::Doctor;
 use crate::fix;
 use serde_json::{json, Value};
-use std::io::{self, BufRead, Write};
+use std::io::{self, BufRead, Read, Write};
+use std::time::Duration;
+
+/// A tool handler: `Ok(text)` is the result, `Err(text)` a result with `isError: true`.
+pub type ToolFn = Box<dyn Fn(&Value) -> Result<String, String> + Send + Sync>;
+
+/// A tool a doctor offers over MCP instead of the built-in `scan` and `fix`.
+pub struct McpTool {
+    pub name: String,
+    pub description: String,
+    /// The `inputSchema` (JSON Schema object).
+    pub schema: Value,
+    /// `Ok(text)` is the result; `Err(text)` is a result with `isError: true`, text verbatim.
+    pub call: ToolFn,
+}
+
+/// What `initialize` answers for `protocolVersion`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Protocol {
+    Fixed(String),
+    /// The client's own `params.protocolVersion` (the default string when it sent none).
+    EchoClient,
+}
+
+/// The few wire texts that differ between existing MCP servers, so a tool moving onto the kit can
+/// stay byte-identical. The defaults are the kit's 0.1 behaviour.
+#[derive(Debug, Clone)]
+pub struct McpWire {
+    pub protocol: Protocol,
+    /// Message of a JSON parse error; `{e}` is the parser's text.
+    pub parse_error: String,
+    /// Message of an unknown method; `{m}` is the method name.
+    pub method_not_found: String,
+    /// `false`: blank lines are ignored. `true`: a blank line is a parse error like any bad JSON.
+    pub blank_line_is_parse_error: bool,
+}
+
+pub const DEFAULT_PROTOCOL: &str = "2024-11-05";
+
+impl Default for McpWire {
+    fn default() -> Self {
+        McpWire {
+            protocol: Protocol::Fixed(DEFAULT_PROTOCOL.into()),
+            parse_error: "parse error: {e}".into(),
+            method_not_found: "unknown method {m}".into(),
+            blank_line_is_parse_error: false,
+        }
+    }
+}
+
+/// Limits for [`exec_self`].
+#[derive(Debug, Clone)]
+pub struct ExecOpts {
+    /// Exit codes whose stdout is a result (e.g. `[0, 1, 3]` for a scan whose findings exit 1/3).
+    pub ok_codes: Vec<i32>,
+    pub timeout: Option<Duration>,
+    /// Largest stdout (and stderr) kept; more kills the child and is an error.
+    pub max_bytes: usize,
+}
+
+impl Default for ExecOpts {
+    fn default() -> Self {
+        ExecOpts {
+            ok_codes: vec![0],
+            timeout: None,
+            max_bytes: 16 << 20,
+        }
+    }
+}
+
+/// Run this very executable with `args` and return its stdout: how an MCP tool "runs the CLI's
+/// own path with --json". Stdin is closed. A listed exit code gives `Ok(stdout)`; any other exit,
+/// a timeout or an oversized output gives `Err` (stderr text when there is some).
+pub fn exec_self(args: &[String], o: &ExecOpts) -> Result<String, String> {
+    use std::process::{Command, Stdio};
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Arc;
+    let exe = std::env::current_exe().map_err(|e| format!("cannot find own executable: {e}"))?;
+    let mut child = Command::new(exe)
+        .args(args)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("cannot start: {e}"))?;
+    let over = Arc::new(AtomicBool::new(false));
+    let drain = |mut r: Box<dyn Read + Send>| {
+        let (over, max) = (over.clone(), o.max_bytes);
+        std::thread::spawn(move || {
+            let (mut buf, mut chunk) = (Vec::new(), [0u8; 8192]);
+            while let Ok(n) = r.read(&mut chunk) {
+                if n == 0 {
+                    break;
+                }
+                if buf.len() + n > max {
+                    over.store(true, Ordering::SeqCst);
+                    // Keep draining so the child is never blocked on a full pipe before the kill.
+                } else {
+                    buf.extend_from_slice(&chunk[..n]);
+                }
+            }
+            buf
+        })
+    };
+    let out = drain(Box::new(child.stdout.take().unwrap()));
+    let err = drain(Box::new(child.stderr.take().unwrap()));
+    let start = std::time::Instant::now();
+    let status = loop {
+        if let Some(st) = child.try_wait().map_err(|e| e.to_string())? {
+            break st;
+        }
+        if over.load(Ordering::SeqCst) {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(format!("output exceeded {} bytes", o.max_bytes));
+        }
+        if o.timeout.is_some_and(|t| start.elapsed() >= t) {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(format!("timed out after {}s", o.timeout.unwrap().as_secs()));
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    };
+    let (out, err) = (
+        out.join().unwrap_or_default(),
+        err.join().unwrap_or_default(),
+    );
+    if over.load(Ordering::SeqCst) {
+        return Err(format!("output exceeded {} bytes", o.max_bytes));
+    }
+    match status.code() {
+        Some(c) if o.ok_codes.contains(&c) => Ok(String::from_utf8_lossy(&out).into_owned()),
+        Some(c) => {
+            let e = String::from_utf8_lossy(&err).trim().to_string();
+            Err(if e.is_empty() {
+                format!("exited with code {c}")
+            } else {
+                e
+            })
+        }
+        None => Err("terminated by a signal".into()),
+    }
+}
 
 fn target_props() -> Value {
     json!({
@@ -23,6 +165,13 @@ pub fn tool_list() -> Value {
 
 /// The tool list for `d`: a detached doctor has no `path`, `scope` or `base` to offer.
 pub fn tool_list_for(d: &dyn Doctor) -> Value {
+    if let Some(tools) = d.mcp_tools() {
+        let list: Vec<Value> = tools
+            .iter()
+            .map(|t| json!({"name": t.name, "description": t.description, "inputSchema": t.schema}))
+            .collect();
+        return json!({ "tools": list });
+    }
     let mut p = target_props();
     if d.target() == crate::TargetKind::Detached {
         for k in ["path", "scope", "base"] {
@@ -66,6 +215,12 @@ fn opts_of(d: &dyn Doctor, args: &Value) -> Result<(String, Opts), String> {
 }
 
 fn call(d: &dyn Doctor, name: &str, args: &Value) -> Result<String, String> {
+    if let Some(tools) = d.mcp_tools() {
+        return match tools.iter().find(|t| t.name == name) {
+            Some(t) => (t.call)(args),
+            None => Err(format!("unknown tool {name}")),
+        };
+    }
     let (path, opts) = opts_of(d, args)?;
     let env = d
         .try_scan(&ctx_from(d, std::path::Path::new(&path), &opts)?)
@@ -86,6 +241,7 @@ fn error(id: Value, code: i64, msg: &str) -> Value {
 
 /// Handle one request; `None` for a notification.
 pub fn handle(d: &dyn Doctor, req: &Value) -> Option<Value> {
+    let wire = d.mcp_wire();
     let Some(obj) = req.as_object() else {
         return Some(error(Value::Null, -32600, "invalid request"));
     };
@@ -97,7 +253,14 @@ pub fn handle(d: &dyn Doctor, req: &Value) -> Option<Value> {
     let result = match obj.get("method").and_then(Value::as_str) {
         None => return Some(error(id, -32600, "invalid request: no method")),
         Some("initialize") => json!({
-            "protocolVersion": "2024-11-05",
+            "protocolVersion": match &wire.protocol {
+                Protocol::Fixed(v) => v.clone(),
+                Protocol::EchoClient => req
+                    .pointer("/params/protocolVersion")
+                    .and_then(Value::as_str)
+                    .unwrap_or(DEFAULT_PROTOCOL)
+                    .to_string(),
+            },
             "capabilities": {"tools": {}},
             "serverInfo": {"name": d.name(), "version": d.version()},
         }),
@@ -115,30 +278,49 @@ pub fn handle(d: &dyn Doctor, req: &Value) -> Option<Value> {
             };
             json!({"content": [{"type": "text", "text": text}], "isError": is_error})
         }
-        Some(m) => return Some(error(id, -32601, &format!("unknown method {m}"))),
+        Some(m) => return Some(error(id, -32601, &wire.method_not_found.replace("{m}", m))),
     };
     Some(json!({"jsonrpc": "2.0", "id": id, "result": result}))
 }
 
 pub fn process_line(d: &dyn Doctor, line: &[u8]) -> Option<Value> {
-    if line.iter().all(u8::is_ascii_whitespace) {
+    let wire = d.mcp_wire();
+    if !wire.blank_line_is_parse_error && line.iter().all(u8::is_ascii_whitespace) {
         return None;
     }
     match serde_json::from_slice::<Value>(line) {
         Ok(req) => handle(d, &req),
-        Err(e) => Some(error(Value::Null, -32700, &format!("parse error: {e}"))),
+        Err(e) => Some(error(
+            Value::Null,
+            -32700,
+            &wire.parse_error.replace("{e}", &e.to_string()),
+        )),
     }
 }
 
 /// Serve until stdin closes. Only JSON-RPC lines reach stdout.
 pub fn serve(d: &dyn Doctor) -> io::Result<()> {
+    serve_verbose(d, false)
+}
+
+/// [`serve`], optionally logging one line per request and response to stderr.
+pub fn serve_verbose(d: &dyn Doctor, verbose: bool) -> io::Result<()> {
     let (mut out, mut inp, mut line) = (io::stdout(), io::stdin().lock(), Vec::new());
     loop {
         line.clear();
         if inp.read_until(b'\n', &mut line)? == 0 {
             return Ok(());
         }
+        if verbose {
+            let method = serde_json::from_slice::<Value>(&line)
+                .ok()
+                .and_then(|v| v.get("method").and_then(Value::as_str).map(String::from));
+            eprintln!("mcp <- {}", method.unwrap_or_else(|| "(unparsed)".into()));
+        }
         if let Some(r) = process_line(d, &line) {
+            if verbose {
+                eprintln!("mcp -> {} bytes", r.to_string().len());
+            }
             writeln!(out, "{r}")?;
             out.flush()?;
         }

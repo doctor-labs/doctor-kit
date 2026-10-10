@@ -173,3 +173,98 @@ fn sigint_exits_130_with_the_interrupted_envelope() {
     assert_eq!(v["data"]["error"]["kind"], "interrupted");
     assert_eq!(v["exit_code"], 130);
 }
+
+#[cfg(feature = "mcp")]
+mod custom_mcp {
+    use super::*;
+
+    /// Send lines, return the parsed stdout lines.
+    fn session(lines: &[&str]) -> (Vec<serde_json::Value>, String) {
+        let mut child = Command::new(env!("CARGO_BIN_EXE_ext-doctor"))
+            .arg("mcp")
+            .env("EXT_DOCTOR_MCP", "1")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap();
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all((lines.join("\n") + "\n").as_bytes())
+            .unwrap();
+        let out = child.wait_with_output().unwrap();
+        let text = String::from_utf8(out.stdout).unwrap();
+        (
+            text.lines()
+                .map(|l| serde_json::from_str(l).unwrap())
+                .collect(),
+            text,
+        )
+    }
+    fn call(id: u32, name: &str, args: &str) -> String {
+        format!(
+            r#"{{"jsonrpc":"2.0","id":{id},"method":"tools/call","params":{{"name":"{name}","arguments":{args}}}}}"#
+        )
+    }
+
+    #[test]
+    fn tools_replace_scan_and_fix_and_wire_texts_are_the_tools() {
+        let (r, _) = session(&[
+            r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26"}}"#,
+            r#"{"jsonrpc":"2.0","id":2,"method":"tools/list"}"#,
+            r#"{"jsonrpc":"2.0","id":3,"method":"nope"}"#,
+            "",
+            &call(4, "fix", "{}"),
+        ]);
+        assert_eq!(r[0]["result"]["protocolVersion"], "2025-03-26", "echoed");
+        let names: Vec<&str> = r[1]["result"]["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|t| t["name"].as_str().unwrap())
+            .collect();
+        assert_eq!(names, ["inspect", "hang", "flood"]);
+        assert_eq!(r[2]["error"]["message"], "method not found");
+        assert_eq!(
+            r[3]["error"]["message"], "parse error",
+            "blank line is a parse error"
+        );
+        assert_eq!(r[3]["error"]["code"], -32700);
+        assert_eq!(r[4]["result"]["isError"], true);
+        assert_eq!(
+            r[4]["result"]["content"][0]["text"], "unknown tool fix",
+            "fix not reachable"
+        );
+    }
+
+    #[test]
+    fn exec_self_results_errors_timeouts_and_caps() {
+        let (r, _) = session(&[
+            &call(1, "inspect", r#"{"subject":"bad"}"#),
+            &call(2, "inspect", r#"{"subject":"--evil"}"#),
+            &call(3, "hang", "{}"),
+            &call(4, "flood", "{}"),
+        ]);
+        // exit 1 (a critical finding) is a result, and the text is the CLI's own stdout
+        assert_eq!(r[0]["result"]["isError"], false);
+        let env: serde_json::Value =
+            serde_json::from_str(r[0]["result"]["content"][0]["text"].as_str().unwrap()).unwrap();
+        assert_eq!(env["findings"][0]["fingerprint"], "fp-bad");
+        // tool-made error text is verbatim
+        assert_eq!(r[1]["result"]["isError"], true);
+        assert_eq!(
+            r[1]["result"]["content"][0]["text"],
+            r#"{"error":"bad subject --evil"}"#
+        );
+        assert!(r[2]["result"]["content"][0]["text"]
+            .as_str()
+            .unwrap()
+            .starts_with("timed out"));
+        assert_eq!(r[2]["result"]["isError"], true);
+        assert_eq!(
+            r[3]["result"]["content"][0]["text"],
+            "output exceeded 1000 bytes"
+        );
+    }
+}

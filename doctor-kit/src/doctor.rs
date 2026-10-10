@@ -249,6 +249,15 @@ pub trait Doctor {
     fn render_json(&self, env: &Envelope) -> String {
         serde_json::to_string_pretty(env).unwrap() + "\n"
     }
+    /// The tools `mcp` offers. `None` (default): the built-in `scan` and `fix`. `Some(..)`
+    /// REPLACES them (so `fix` is not reachable unless listed). The kit owns the stdio loop.
+    fn mcp_tools(&self) -> Option<Vec<crate::mcp::McpTool>> {
+        None
+    }
+    /// Wire texts of the MCP server, for tools that must stay byte-identical to an older server.
+    fn mcp_wire(&self) -> crate::mcp::McpWire {
+        crate::mcp::McpWire::default()
+    }
     /// The SARIF 2.1.0 document written by `--sarif`, as text. Default: the kit's document, pretty
     /// with a trailing newline. A tool with its own locations or serialisation builds its own
     /// (e.g. with `doctor_core::sarif::document`).
