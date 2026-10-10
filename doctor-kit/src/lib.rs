@@ -1,0 +1,25 @@
+//! doctor-kit: the reusable runtime for doctor CLI tools.
+//!
+//! A tool implements [`Doctor`] (name, version, categories, checks) and calls [`run`].
+//! Output is a `doctor/1` [`Envelope`] rendered by a [`Face`] in a [`Theme`].
+pub mod check;
+pub mod cli;
+pub mod config;
+pub mod doctor;
+pub mod face;
+pub mod session;
+pub mod theme;
+
+#[cfg(feature = "repl")]
+pub mod repl;
+#[cfg(feature = "tui")]
+pub mod tui;
+
+pub use check::{finding, Check, CheckResult, Ctx, Scope};
+pub use cli::run;
+pub use config::{Config, Weights};
+pub use doctor::Doctor;
+pub use face::Face;
+pub use theme::Theme;
+
+pub use doctor_core;

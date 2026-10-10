@@ -1,0 +1,10 @@
+example-doctor 0.1.0 | 57/100 critical | 8 findings: 1 critical · 1 high · 1 medium · 4 low · 1 info
+SEV       RULE             LOCATION            MESSAGE
+critical  secret.aws-key   notes/deploy.txt:3  AWS access key id in source
+high      secret.password  notes/db.txt:2      Hard-coded password
+medium    size.large-file  notes/log-dump.txt  File larger than 4 KiB
+low       hygiene.todo     notes/deploy.txt:4  Unresolved TODO/FIXME
+low       hygiene.todo     notes/db.txt:3      Unresolved TODO/FIXME
+low       hygiene.todo     src/todo.txt:2      Unresolved TODO/FIXME
+low       hygiene.todo     src/todo.txt:3      Unresolved TODO/FIXME
+info      docs.no-readme   .                   No README at the root

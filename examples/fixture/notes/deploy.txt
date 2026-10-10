@@ -1,0 +1,5 @@
+Deploy notes
+============
+export AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE
+TODO: rotate the key after the demo
+Run ./deploy.sh staging first.

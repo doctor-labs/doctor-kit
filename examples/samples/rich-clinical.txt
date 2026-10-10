@@ -1,0 +1,36 @@
+[2m╭─[0m[1m example-doctor 0.1.0 [0m[2m───────────────────────────────────────────────────────╮[0m
+[2m│ [0m[2mScore  [0m[31;1m█████████████████[0m[2m░░░░░░░░░░░░░[0m[31;1m  57/100  critical[0m                     [2m │[0m
+[2m│ [0m[31;1m1 critical[0m[2m · [0m[31m1 high[0m[2m · [0m[33;1m1 medium[0m[2m · [0m[33m4 low[0m[2m · [0m[36m1 info[0m                             [2m │[0m
+[2m├──────────────────────────────────────────────────────────────────────────────┤[0m
+[2m│ [0m[1msecrets[0m[2m (2)[0m                                                                 [2m │[0m
+[2m│ [0m[31;1m● critical [0m[36msecret.aws-key[0m[2m  [0mnotes/deploy.txt:3                               [2m │[0m
+[2m│ [0m    AWS access key id in source                                             [2m │[0m
+[2m│ [0m    [32m→ [0m[2mRevoke the key and load it from the environment.[0m                      [2m │[0m
+[2m│ [0m[31m● high     [0m[36msecret.password[0m[2m  [0mnotes/db.txt:2                                  [2m │[0m
+[2m│ [0m    Hard-coded password                                                     [2m │[0m
+[2m│ [0m    [32m→ [0m[2mMove it to a secret store.[0m                                            [2m │[0m
+[2m├──────────────────────────────────────────────────────────────────────────────┤[0m
+[2m│ [0m[1mhygiene[0m[2m (4)[0m                                                                 [2m │[0m
+[2m│ [0m[33m● low      [0m[36mhygiene.todo[0m[2m  [0mnotes/deploy.txt:4                                 [2m │[0m
+[2m│ [0m    Unresolved TODO/FIXME                                                   [2m │[0m
+[2m│ [0m    [32m→ [0m[2mResolve it or file an issue.[0m                                          [2m │[0m
+[2m│ [0m[33m● low      [0m[36mhygiene.todo[0m[2m  [0mnotes/db.txt:3                                     [2m │[0m
+[2m│ [0m    Unresolved TODO/FIXME                                                   [2m │[0m
+[2m│ [0m    [32m→ [0m[2mResolve it or file an issue.[0m                                          [2m │[0m
+[2m│ [0m[33m● low      [0m[36mhygiene.todo[0m[2m  [0msrc/todo.txt:2                                     [2m │[0m
+[2m│ [0m    Unresolved TODO/FIXME                                                   [2m │[0m
+[2m│ [0m    [32m→ [0m[2mResolve it or file an issue.[0m                                          [2m │[0m
+[2m│ [0m[33m● low      [0m[36mhygiene.todo[0m[2m  [0msrc/todo.txt:3                                     [2m │[0m
+[2m│ [0m    Unresolved TODO/FIXME                                                   [2m │[0m
+[2m│ [0m    [32m→ [0m[2mResolve it or file an issue.[0m                                          [2m │[0m
+[2m├──────────────────────────────────────────────────────────────────────────────┤[0m
+[2m│ [0m[1msize[0m[2m (1)[0m                                                                    [2m │[0m
+[2m│ [0m[33;1m● medium   [0m[36msize.large-file[0m[2m  [0mnotes/log-dump.txt                              [2m │[0m
+[2m│ [0m    File larger than 4 KiB                                                  [2m │[0m
+[2m│ [0m    [32m→ [0m[2mSplit it or move it out of the repo.[0m                                  [2m │[0m
+[2m├──────────────────────────────────────────────────────────────────────────────┤[0m
+[2m│ [0m[1mdocs[0m[2m (1)[0m                                                                    [2m │[0m
+[2m│ [0m[36m● info     [0m[36mdocs.no-readme[0m[2m  [0m.                                                [2m │[0m
+[2m│ [0m    No README at the root                                                   [2m │[0m
+[2m│ [0m    [32m→ [0m[2mAdd a README.md.[0m                                                      [2m │[0m
+[2m╰──────────────────────────────────────────────────────────────────────────────╯[0m

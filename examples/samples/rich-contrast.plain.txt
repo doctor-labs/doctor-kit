@@ -1,0 +1,36 @@
+╭─ example-doctor 0.1.0 ───────────────────────────────────────────────────────╮
+│ Score  █████████████████░░░░░░░░░░░░░  57/100  critical                      │
+│ 1 critical · 1 high · 1 medium · 4 low · 1 info                              │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ secrets (2)                                                                  │
+│ ● critical secret.aws-key  notes/deploy.txt:3                                │
+│     AWS access key id in source                                              │
+│     → Revoke the key and load it from the environment.                       │
+│ ● high     secret.password  notes/db.txt:2                                   │
+│     Hard-coded password                                                      │
+│     → Move it to a secret store.                                             │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ hygiene (4)                                                                  │
+│ ● low      hygiene.todo  notes/deploy.txt:4                                  │
+│     Unresolved TODO/FIXME                                                    │
+│     → Resolve it or file an issue.                                           │
+│ ● low      hygiene.todo  notes/db.txt:3                                      │
+│     Unresolved TODO/FIXME                                                    │
+│     → Resolve it or file an issue.                                           │
+│ ● low      hygiene.todo  src/todo.txt:2                                      │
+│     Unresolved TODO/FIXME                                                    │
+│     → Resolve it or file an issue.                                           │
+│ ● low      hygiene.todo  src/todo.txt:3                                      │
+│     Unresolved TODO/FIXME                                                    │
+│     → Resolve it or file an issue.                                           │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ size (1)                                                                     │
+│ ● medium   size.large-file  notes/log-dump.txt                               │
+│     File larger than 4 KiB                                                   │
+│     → Split it or move it out of the repo.                                   │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ docs (1)                                                                     │
+│ ● info     docs.no-readme  .                                                 │
+│     No README at the root                                                    │
+│     → Add a README.md.                                                       │
+╰──────────────────────────────────────────────────────────────────────────────╯

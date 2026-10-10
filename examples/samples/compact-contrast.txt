@@ -1,0 +1,10 @@
+[97;1;4mexample-doctor 0.1.0[0m[90m | [0m[91;1;4m57/100 critical[0m[90m | [0m[90m8 findings: [0m[91;1;4m1 critical[0m[90m · [0m[95;1m1 high[0m[90m · [0m[93;1m1 medium[0m[90m · [0m[97;1m4 low[0m[90m · [0m[96;1m1 info[0m
+[90mSEV       RULE             LOCATION            MESSAGE[0m
+[91;1;4mcritical [0m[94;1m secret.aws-key  [0m notes/deploy.txt:3  AWS access key id in source
+[95;1mhigh     [0m[94;1m secret.password [0m notes/db.txt:2      Hard-coded password
+[93;1mmedium   [0m[94;1m size.large-file [0m notes/log-dump.txt  File larger than 4 KiB
+[97;1mlow      [0m[94;1m hygiene.todo    [0m notes/deploy.txt:4  Unresolved TODO/FIXME
+[97;1mlow      [0m[94;1m hygiene.todo    [0m notes/db.txt:3      Unresolved TODO/FIXME
+[97;1mlow      [0m[94;1m hygiene.todo    [0m src/todo.txt:2      Unresolved TODO/FIXME
+[97;1mlow      [0m[94;1m hygiene.todo    [0m src/todo.txt:3      Unresolved TODO/FIXME
+[96;1minfo     [0m[94;1m docs.no-readme  [0m .                   No README at the root

@@ -1,0 +1,36 @@
+[90m╭─[0m[97;1;4m example-doctor 0.1.0 [0m[90m───────────────────────────────────────────────────────╮[0m
+[90m│ [0m[90mScore  [0m[91;1;4m█████████████████[0m[90m░░░░░░░░░░░░░[0m[91;1;4m  57/100  critical[0m                     [90m │[0m
+[90m│ [0m[91;1;4m1 critical[0m[90m · [0m[95;1m1 high[0m[90m · [0m[93;1m1 medium[0m[90m · [0m[97;1m4 low[0m[90m · [0m[96;1m1 info[0m                             [90m │[0m
+[90m├──────────────────────────────────────────────────────────────────────────────┤[0m
+[90m│ [0m[97;1;4msecrets[0m[90m (2)[0m                                                                 [90m │[0m
+[90m│ [0m[91;1;4m● critical [0m[94;1msecret.aws-key[0m[90m  [0mnotes/deploy.txt:3                               [90m │[0m
+[90m│ [0m    AWS access key id in source                                             [90m │[0m
+[90m│ [0m    [92;1m→ [0m[90mRevoke the key and load it from the environment.[0m                      [90m │[0m
+[90m│ [0m[95;1m● high     [0m[94;1msecret.password[0m[90m  [0mnotes/db.txt:2                                  [90m │[0m
+[90m│ [0m    Hard-coded password                                                     [90m │[0m
+[90m│ [0m    [92;1m→ [0m[90mMove it to a secret store.[0m                                            [90m │[0m
+[90m├──────────────────────────────────────────────────────────────────────────────┤[0m
+[90m│ [0m[97;1;4mhygiene[0m[90m (4)[0m                                                                 [90m │[0m
+[90m│ [0m[97;1m● low      [0m[94;1mhygiene.todo[0m[90m  [0mnotes/deploy.txt:4                                 [90m │[0m
+[90m│ [0m    Unresolved TODO/FIXME                                                   [90m │[0m
+[90m│ [0m    [92;1m→ [0m[90mResolve it or file an issue.[0m                                          [90m │[0m
+[90m│ [0m[97;1m● low      [0m[94;1mhygiene.todo[0m[90m  [0mnotes/db.txt:3                                     [90m │[0m
+[90m│ [0m    Unresolved TODO/FIXME                                                   [90m │[0m
+[90m│ [0m    [92;1m→ [0m[90mResolve it or file an issue.[0m                                          [90m │[0m
+[90m│ [0m[97;1m● low      [0m[94;1mhygiene.todo[0m[90m  [0msrc/todo.txt:2                                     [90m │[0m
+[90m│ [0m    Unresolved TODO/FIXME                                                   [90m │[0m
+[90m│ [0m    [92;1m→ [0m[90mResolve it or file an issue.[0m                                          [90m │[0m
+[90m│ [0m[97;1m● low      [0m[94;1mhygiene.todo[0m[90m  [0msrc/todo.txt:3                                     [90m │[0m
+[90m│ [0m    Unresolved TODO/FIXME                                                   [90m │[0m
+[90m│ [0m    [92;1m→ [0m[90mResolve it or file an issue.[0m                                          [90m │[0m
+[90m├──────────────────────────────────────────────────────────────────────────────┤[0m
+[90m│ [0m[97;1;4msize[0m[90m (1)[0m                                                                    [90m │[0m
+[90m│ [0m[93;1m● medium   [0m[94;1msize.large-file[0m[90m  [0mnotes/log-dump.txt                              [90m │[0m
+[90m│ [0m    File larger than 4 KiB                                                  [90m │[0m
+[90m│ [0m    [92;1m→ [0m[90mSplit it or move it out of the repo.[0m                                  [90m │[0m
+[90m├──────────────────────────────────────────────────────────────────────────────┤[0m
+[90m│ [0m[97;1;4mdocs[0m[90m (1)[0m                                                                    [90m │[0m
+[90m│ [0m[96;1m● info     [0m[94;1mdocs.no-readme[0m[90m  [0m.                                                [90m │[0m
+[90m│ [0m    No README at the root                                                   [90m │[0m
+[90m│ [0m    [92;1m→ [0m[90mAdd a README.md.[0m                                                      [90m │[0m
+[90m╰──────────────────────────────────────────────────────────────────────────────╯[0m

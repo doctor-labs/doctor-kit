@@ -1,0 +1,19 @@
+[package]
+name = "example-doctor"
+version = "0.1.0"
+edition = "2021"
+description = "Toy doctor proving the doctor-kit skeleton"
+license = "MIT"
+publish = false
+
+[features]
+default = ["repl", "tui"]
+repl = ["doctor-kit/repl"]
+tui = ["doctor-kit/tui"]
+
+[dev-dependencies]
+serde_json = "1"
+
+[dependencies]
+doctor-kit = { path = "../../doctor-kit" }
+doctor-core = "0.1"

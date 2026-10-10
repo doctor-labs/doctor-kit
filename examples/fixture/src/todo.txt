@@ -1,0 +1,4 @@
+parse the config file
+TODO: handle empty input
+TODO: add retries
+done: logging

@@ -1,0 +1,3 @@
+db host: localhost
+db_password = "hunter2"
+FIXME: use the vault instead

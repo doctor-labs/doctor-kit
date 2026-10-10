@@ -1,0 +1,22 @@
+[package]
+name = "doctor-kit"
+version = "0.1.0"
+edition = "2021"
+description = "Reusable runtime for doctor CLI tools: checks, score, faces, themes, REPL, TUI"
+license = "MIT"
+repository = "https://github.com/doctor-labs/doctor-kit"
+
+[features]
+default = []
+repl = ["dep:reedline"]
+tui = ["dep:ratatui"]
+
+[dependencies]
+doctor-core = "0.1"
+owo-colors = "4"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+clap = { version = "4", features = ["derive"] }
+reedline = { version = "0.40", optional = true }
+ratatui = { version = "0.29", optional = true }
