@@ -23,7 +23,7 @@ pub mod repl;
 pub mod tui;
 
 pub use check::{finding, Check, CheckResult, Ctx, Scope};
-pub use cli::run;
+pub use cli::{command_with, run, run_with, ExtCommand, Extensions, Meta};
 pub use config::{Config, Weights};
 pub use doctor::{failure_envelope, Collected, Doctor, ScanFailure, TargetKind};
 pub use face::Face;

@@ -24,6 +24,8 @@ jobs:
           cargo build -p example-doctor --no-default-features --features mcp
           cargo build -p example-doctor --no-default-features
           cargo build -p example-doctor --all-features
+          cargo build -p ext-doctor --no-default-features
+          cargo build -p ext-doctor --all-features
   # Compatibility test for current users: a project generated from doctor-template (which pins
   # doctor-kit 0.1) must keep building and passing against this checkout.
   template:

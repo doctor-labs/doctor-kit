@@ -18,11 +18,26 @@ fn target_props() -> Value {
 }
 
 pub fn tool_list() -> Value {
-    let mut fix_props = target_props();
+    tool_props(target_props())
+}
+
+/// The tool list for `d`: a detached doctor has no `path`, `scope` or `base` to offer.
+pub fn tool_list_for(d: &dyn Doctor) -> Value {
+    let mut p = target_props();
+    if d.target() == crate::TargetKind::Detached {
+        for k in ["path", "scope", "base"] {
+            p.as_object_mut().unwrap().remove(k);
+        }
+    }
+    tool_props(p)
+}
+
+fn tool_props(props: Value) -> Value {
+    let mut fix_props = props.clone();
     fix_props["id"] = json!({"type": "string", "description": "Finding rule id or fingerprint prefix; omit for the whole scan"});
     json!({"tools": [
         {"name": "scan", "description": "Scan a directory; returns the doctor/1 envelope as JSON text.",
-         "inputSchema": {"type": "object", "properties": target_props()}},
+         "inputSchema": {"type": "object", "properties": props}},
         {"name": "fix", "description": "Build a coding-agent prompt from one finding or the whole scan.",
          "inputSchema": {"type": "object", "properties": fix_props}}
     ]})
@@ -53,7 +68,7 @@ fn opts_of(d: &dyn Doctor, args: &Value) -> Result<(String, Opts), String> {
 fn call(d: &dyn Doctor, name: &str, args: &Value) -> Result<String, String> {
     let (path, opts) = opts_of(d, args)?;
     let env = d
-        .try_scan(&ctx_from(std::path::Path::new(&path), &opts)?)
+        .try_scan(&ctx_from(d, std::path::Path::new(&path), &opts)?)
         .map_err(|f| f.to_string())?;
     match name {
         "scan" => Ok(d.render_json(&env)),
@@ -87,7 +102,7 @@ pub fn handle(d: &dyn Doctor, req: &Value) -> Option<Value> {
             "serverInfo": {"name": d.name(), "version": d.version()},
         }),
         Some("ping") => json!({}),
-        Some("tools/list") => tool_list(),
+        Some("tools/list") => tool_list_for(d),
         Some("tools/call") => {
             let name = req
                 .pointer("/params/name")

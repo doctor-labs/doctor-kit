@@ -1,0 +1,21 @@
+[package]
+name = "ext-doctor"
+version = "0.1.0"
+edition = "2021"
+description = "Toy detached doctor: proves doctor-kit's extension API (own commands, replaced scan, no directory)"
+license = "MIT"
+publish = false
+
+[features]
+default = ["repl", "mcp"]
+repl = ["doctor-kit/repl"]
+mcp = ["doctor-kit/mcp"]
+
+[dependencies]
+doctor-kit = { path = "../../doctor-kit", default-features = false }
+doctor-core = "0.1"
+clap = "4"
+serde_json = "1"
+
+[dev-dependencies]
+serde_json = "1"

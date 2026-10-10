@@ -445,14 +445,18 @@ impl<'a> Session<'a> {
     }
 
     fn rescan(&mut self) -> Result<Reply, String> {
-        let ctx = Ctx::with_base(
-            &self.ctx.root,
-            self.ctx.scope,
-            self.ctx.base.clone(),
-            self.ctx.config.clone(),
-            self.ctx.fail_on,
-        )
-        .map_err(|e| e.to_string())?;
+        let ctx = if self.doctor.target() == crate::TargetKind::Detached {
+            Ctx::detached(self.ctx.config.clone(), self.ctx.fail_on)
+        } else {
+            Ctx::with_base(
+                &self.ctx.root,
+                self.ctx.scope,
+                self.ctx.base.clone(),
+                self.ctx.config.clone(),
+                self.ctx.fail_on,
+            )
+            .map_err(|e| e.to_string())?
+        };
         self.env = self.doctor.scan(&ctx);
         self.tree = self.doctor.tree(&self.env, &ctx);
         self.ctx = ctx;
