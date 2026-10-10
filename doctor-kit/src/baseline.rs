@@ -87,9 +87,16 @@ pub fn load(path: &Path, max_bytes: usize) -> Result<Saved, BaselineError> {
     Ok(Saved { fingerprints, doc })
 }
 
-/// Load for `d`: size cap and message wording come from the doctor.
-pub fn load_for(d: &dyn Doctor, path: &Path) -> Result<Saved, ScanFailure> {
-    load(path, d.baseline_max_bytes()).map_err(|e| ScanFailure::new(d.baseline_message(&e)))
+/// The kit's loader as [`Doctor::load_baseline`] runs it by default: [`load`] with the doctor's
+/// size cap, failures worded by [`Doctor::baseline_message`] and shaped by
+/// [`Doctor::preflight_error`].
+pub fn load_for<D: Doctor + ?Sized>(d: &D, path: &Path) -> Result<Saved, ScanFailure> {
+    load(path, d.baseline_max_bytes()).map_err(|e| {
+        d.preflight_error(
+            crate::doctor::PreflightKind::Baseline,
+            d.baseline_message(&e),
+        )
+    })
 }
 
 /// Set `baseline_state` on every finding and `env.baseline`. A coverage gap ([`Doctor::is_gap`])

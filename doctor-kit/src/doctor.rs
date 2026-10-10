@@ -53,6 +53,14 @@ impl ScanFailure {
             envelope: None,
         }
     }
+    /// Exit 2 and exactly `msg` plus a newline on stderr: no `error: ` prefix.
+    pub fn plain(msg: impl std::fmt::Display) -> Self {
+        ScanFailure {
+            exit: 2,
+            stderr: format!("{msg}\n"),
+            envelope: None,
+        }
+    }
     /// Also print this envelope on stdout (see [`failure_envelope`]).
     pub fn with_envelope(mut self, env: Envelope) -> Self {
         self.envelope = Some(Box::new(env));
@@ -76,6 +84,15 @@ impl From<String> for ScanFailure {
     fn from(s: String) -> Self {
         ScanFailure::new(s)
     }
+}
+
+/// Which `preflight` check failed (see [`Doctor::preflight_error`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PreflightKind {
+    /// The `--baseline` file could not be loaded.
+    Baseline,
+    /// `--sarif` and `--baseline` name the same file.
+    SarifIsBaseline,
 }
 
 /// What the subject of a doctor is.
@@ -244,6 +261,19 @@ pub trait Doctor {
     /// keep a tool's existing text byte for byte.
     fn baseline_message(&self, e: &crate::baseline::BaselineError) -> String {
         e.to_string()
+    }
+    /// Read `--baseline`. The default is the kit's loader ([`crate::baseline::load_for`]: a doctor/1
+    /// envelope or a bare array, size cap from [`Doctor::baseline_max_bytes`]). A tool that must keep
+    /// its exact parsing (which shapes it accepts, which entries it skips, no size cap) overrides
+    /// this: it gets the path and reads the bytes itself. It returns the fingerprints to compare
+    /// and the parsed document for [`Doctor::baseline_hook`].
+    fn load_baseline(&self, path: &std::path::Path) -> Result<crate::baseline::Saved, ScanFailure> {
+        crate::baseline::load_for(self, path)
+    }
+    /// How a failed `preflight` check is reported: default exit 2 and `error: <msg>` on stderr.
+    /// Override for a different prefix (none at all: `ScanFailure::plain`), exit code or text.
+    fn preflight_error(&self, _kind: PreflightKind, msg: String) -> ScanFailure {
+        ScanFailure::new(msg)
     }
     /// After the baseline is applied: tool-specific refusals (dialect, truncation) or extra data
     /// (a diff). `saved` is the whole baseline document.
