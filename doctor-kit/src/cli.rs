@@ -2,9 +2,9 @@
 //! Feature `repl`: `shell`; `tui`: `explore`; `mcp`: `mcp`.
 use crate::check::{Ctx, Scope};
 use crate::config::Config;
-use crate::doctor::Doctor;
+use crate::doctor::{Doctor, TargetKind};
 use crate::install::Agent;
-use clap::{Args, CommandFactory, FromArgMatches, Parser, Subcommand};
+use clap::{ArgMatches, Args, CommandFactory, FromArgMatches, Parser, Subcommand};
 use doctor_core::Severity;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -133,28 +133,34 @@ struct ShellArgs {
     json: bool,
 }
 
-fn ctx_of(t: &Target) -> Result<Ctx, String> {
-    ctx_from(&t.path, &t.opts)
+fn ctx_of(d: &dyn Doctor, t: &Target) -> Result<Ctx, String> {
+    ctx_from(d, &t.path, &t.opts)
 }
 
-pub(crate) fn ctx_from(path: &Path, o: &Opts) -> Result<Ctx, String> {
+/// The scan context for `d`: a walked directory, or for a `Detached` doctor nothing at all (only an
+/// explicit `--config` is read; no `doctor.toml` is looked for in the working directory).
+pub(crate) fn ctx_from(d: &dyn Doctor, path: &Path, o: &Opts) -> Result<Ctx, String> {
+    let detached = d.target() == TargetKind::Detached;
     let cfg_path = o
         .config
         .clone()
-        .or_else(|| Some(path.join("doctor.toml")).filter(|p| p.is_file()));
+        .or_else(|| Some(path.join("doctor.toml")).filter(|p| !detached && p.is_file()));
     let config = match cfg_path {
         Some(p) => Config::from_toml(
             &std::fs::read_to_string(&p).map_err(|e| format!("{}: {e}", p.display()))?,
         )?,
         None => Config::default(),
     };
+    if detached {
+        return Ok(Ctx::detached(config, o.fail_on));
+    }
     Ctx::with_base(path, o.scope, o.base.clone(), config, o.fail_on)
         .map_err(|e| format!("{}: {e}", path.display()))
 }
 
 fn fix(d: &dyn Doctor, a: FixArgs) -> Result<u8, String> {
     let env = d
-        .try_scan(&ctx_from(&a.path, &a.opts)?)
+        .try_scan(&ctx_from(d, &a.path, &a.opts)?)
         .map_err(|f| f.to_string())?;
     let hits = crate::fix::select(&env, a.id.as_deref())?;
     if hits.is_empty() {
@@ -199,57 +205,169 @@ fn scan(d: &dyn Doctor, a: ScanArgs) -> Result<u8, String> {
         sarif: a.out.sarif,
         baseline: a.out.baseline,
         fail_on: a.target.opts.fail_on,
-        theme_root: Some(a.target.path.clone()),
+        theme_root: (d.target() == TargetKind::Dir).then(|| a.target.path.clone()),
     };
     let pre = match crate::output::preflight(d, &o) {
         Ok(p) => p,
         Err(f) => return Ok(crate::output::report_failure(d, &f)),
     };
-    let ctx = ctx_of(&a.target)?;
+    let ctx = ctx_of(d, &a.target)?;
     Ok(crate::output::finish(d, pre, d.try_scan(&ctx), &o))
 }
 
-fn command_for<D: Doctor>(d: &D) -> clap::Command {
-    let default_fail_on = d.default_fail_on();
+/// What the command tree needs to know about a doctor before it exists (the doctor may be built
+/// from the parsed arguments, so help and parsing cannot ask it).
+#[derive(Debug, Clone)]
+pub struct Meta {
+    pub name: String,
+    pub version: String,
+    pub about: String,
+    /// Default of `--fail-on` on the kit's commands.
+    pub fail_on: Severity,
+    pub target: TargetKind,
+}
+
+impl Meta {
+    pub fn of(d: &dyn Doctor) -> Meta {
+        Meta {
+            name: d.name().into(),
+            version: d.version().into(),
+            about: d.about().into(),
+            fail_on: d.default_fail_on(),
+            target: d.target(),
+        }
+    }
+}
+
+/// A tool's own subcommand. One named like a kit command (`scan`, `fix`, `install`, `ci`, `mcp`,
+/// `shell`, `explore`) replaces it, in the same place in `--help`. `run` gets that subcommand's matches.
+pub struct ExtCommand<D> {
+    pub command: clap::Command,
+    pub run: fn(&D, &ArgMatches) -> Result<u8, String>,
+}
+
+/// How a tool extends the kit's CLI.
+pub struct Extensions<D> {
+    pub commands: Vec<ExtCommand<D>>,
+    /// Arguments accepted before or after any subcommand (e.g. `--adapter`); made `global`.
+    pub global_args: Vec<clap::Arg>,
+    /// Exit code for a command line clap rejected (the error is printed first). Default: clap's own.
+    pub usage_exit: fn(&clap::Error, &[String]) -> u8,
+}
+
+impl<D> Default for Extensions<D> {
+    fn default() -> Self {
+        Extensions {
+            commands: vec![],
+            global_args: vec![],
+            usage_exit: |e, _| e.exit_code() as u8,
+        }
+    }
+}
+
+/// The command tree: the kit's commands, with the tool's replacing or joining them.
+pub fn command_with<D>(meta: &Meta, ext: &Extensions<D>) -> clap::Command {
     let mut cmd = Cli::command()
-        .name(d.name().to_string())
-        .bin_name(d.name().to_string())
-        .version(d.version().to_string())
-        .about(d.about().to_string());
-    // `--fail-on` defaults to the doctor's own severity (help shows it too).
+        .name(meta.name.clone())
+        .bin_name(meta.name.clone())
+        .version(meta.version.clone())
+        .about(meta.about.clone());
+    // `--fail-on` defaults to the doctor's own severity (help shows it too); a detached doctor has
+    // no directory, so the walk options are hidden (and ignored).
     let names: Vec<String> = cmd
         .get_subcommands()
-        .filter(|c| c.get_arguments().any(|a| a.get_id() == "fail_on"))
         .map(|c| c.get_name().to_string())
         .collect();
     for n in names {
-        cmd = cmd.mut_subcommand(n, |c| {
-            c.mut_arg("fail_on", |a| a.default_value(default_fail_on.as_str()))
+        cmd = cmd.mut_subcommand(n, |mut c| {
+            if c.get_arguments().any(|a| a.get_id() == "fail_on") {
+                c = c.mut_arg("fail_on", |a| a.default_value(meta.fail_on.as_str()));
+            }
+            if meta.target == TargetKind::Detached {
+                for id in ["path", "scope", "base"] {
+                    if c.get_arguments().any(|a| a.get_id() == id) {
+                        c = c.mut_arg(id, |a| a.hide(true));
+                    }
+                }
+            }
+            c
         });
+    }
+    for e in &ext.commands {
+        let name = e.command.get_name().to_string();
+        if cmd.find_subcommand(&name).is_some() {
+            cmd = cmd.mut_subcommand(name, |_| e.command.clone());
+        } else {
+            cmd = cmd.subcommand(e.command.clone());
+        }
+    }
+    for a in &ext.global_args {
+        cmd = cmd.arg(a.clone().global(true));
     }
     cmd
 }
 
-pub fn run<D: Doctor>(doctor: D) -> ExitCode {
-    // Name, version and about come from the doctor, not from doctor-kit's own Cargo metadata.
-    let matches = command_for(&doctor).get_matches();
-    let cli = Cli::from_arg_matches(&matches).unwrap_or_else(|e| e.exit());
-    let res = match cli.cmd {
-        Cmd::Scan(a) => scan(&doctor, a),
-        Cmd::Fix(a) => fix(&doctor, a),
-        Cmd::Install(a) => install(&doctor, a),
-        Cmd::Ci(a) => ci(&doctor, a),
+#[cfg(test)]
+fn command_for<D: Doctor>(d: &D) -> clap::Command {
+    command_with(&Meta::of(d), &Extensions::<D>::default())
+}
+
+fn builtin(d: &dyn Doctor, cli: Cli) -> Result<u8, String> {
+    match cli.cmd {
+        Cmd::Scan(a) => scan(d, a),
+        Cmd::Fix(a) => fix(d, a),
+        Cmd::Install(a) => install(d, a),
+        Cmd::Ci(a) => ci(d, a),
         #[cfg(feature = "mcp")]
-        Cmd::Mcp => crate::mcp::serve(&doctor)
-            .map(|_| 0)
-            .map_err(|e| e.to_string()),
+        Cmd::Mcp => crate::mcp::serve(d).map(|_| 0).map_err(|e| e.to_string()),
         #[cfg(feature = "repl")]
-        Cmd::Shell(a) => ctx_of(&a.target)
-            .and_then(|c| crate::repl::run(&doctor, c, a.command.as_deref(), a.json)),
+        Cmd::Shell(a) => {
+            ctx_of(d, &a.target).and_then(|c| crate::repl::run(d, c, a.command.as_deref(), a.json))
+        }
         #[cfg(feature = "tui")]
-        Cmd::Explore(t) => ctx_of(&t)
-            .and_then(|c| crate::tui::run(&doctor, c))
-            .map(|_| 0),
+        Cmd::Explore(t) => ctx_of(d, &t).and_then(|c| crate::tui::run(d, c)).map(|_| 0),
+    }
+}
+
+/// Run the CLI with the tool's extensions. `meta` describes the doctor for `--help` and parsing;
+/// `build` creates the doctor from the root matches once the command line parsed (look inside
+/// `m.subcommand()` for the subcommand's own arguments).
+pub fn run_with<D: Doctor>(
+    meta: Meta,
+    ext: Extensions<D>,
+    build: impl FnOnce(&ArgMatches) -> Result<D, String>,
+) -> ExitCode {
+    let argv: Vec<String> = std::env::args().collect();
+    let matches = match command_with(&meta, &ext).try_get_matches_from(&argv) {
+        Ok(m) => m,
+        Err(e) => {
+            let code = (ext.usage_exit)(&e, &argv);
+            let _ = e.print();
+            return ExitCode::from(code);
+        }
+    };
+    let doctor = match build(&matches) {
+        Ok(d) => d,
+        Err(e) => {
+            eprintln!("error: {e}");
+            return ExitCode::from(2);
+        }
+    };
+    let sub = matches.subcommand();
+    let res = match sub.and_then(|(n, m)| {
+        ext.commands
+            .iter()
+            .find(|c| c.command.get_name() == n)
+            .map(|c| (c, m))
+    }) {
+        Some((c, m)) => (c.run)(&doctor, m),
+        None => match Cli::from_arg_matches(&matches) {
+            Ok(cli) => builtin(&doctor, cli),
+            Err(e) => {
+                let _ = e.print();
+                return ExitCode::from(2);
+            }
+        },
     };
     match res {
         Ok(code) => ExitCode::from(code),
@@ -258,6 +376,13 @@ pub fn run<D: Doctor>(doctor: D) -> ExitCode {
             ExitCode::from(2)
         }
     }
+}
+
+/// The whole CLI for a doctor: `scan`, `fix`, `install`, `ci`, and with features `mcp`, `shell`,
+/// `explore`. Name, version and about come from the doctor, not from doctor-kit's Cargo metadata.
+pub fn run<D: Doctor>(doctor: D) -> ExitCode {
+    let meta = Meta::of(&doctor);
+    run_with(meta, Extensions::default(), move |_| Ok(doctor))
 }
 
 #[cfg(test)]

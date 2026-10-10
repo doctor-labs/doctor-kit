@@ -76,13 +76,19 @@ impl OutputArgs {
     /// The kit's standard definitions of these flags, for a tool's own `Command`:
     /// `--fail-on` defaults to `d.default_fail_on()`.
     pub fn args(d: &dyn Doctor) -> Vec<Arg> {
+        Self::args_with(d.default_fail_on())
+    }
+
+    /// [`OutputArgs::args`] before the doctor exists (a tool defines its command first, then
+    /// `run_with` builds the doctor): give the `--fail-on` default directly.
+    pub fn args_with(fail_on: Severity) -> Vec<Arg> {
         let cmd = OutputFlags::augment_args(clap::Command::new("x"));
         let mut v: Vec<Arg> = cmd.get_arguments().cloned().collect();
         v.push(
             Arg::new("fail_on")
                 .long("fail-on")
                 .help("Exit 1 when a finding is at or above this severity")
-                .default_value(d.default_fail_on().as_str())
+                .default_value(fail_on.as_str())
                 .value_parser(crate::cli::parse_sev),
         );
         v
