@@ -25,7 +25,7 @@ pub mod tui;
 pub use check::{finding, Check, CheckResult, Ctx, Scope};
 pub use cli::{command_with, run, run_with, ExtCommand, Extensions, Meta};
 pub use config::{Config, Weights};
-pub use doctor::{failure_envelope, Collected, Doctor, ScanFailure, TargetKind};
+pub use doctor::{failure_envelope, Collected, Doctor, PreflightKind, ScanFailure, TargetKind};
 pub use face::Face;
 pub use mcp::{McpTool, McpWire, Protocol};
 pub use node::{Action, Node};

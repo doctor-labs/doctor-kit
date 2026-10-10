@@ -158,14 +158,17 @@ pub fn preflight(d: &dyn Doctor, o: &OutputArgs) -> Result<Preflight, ScanFailur
         let same = s == b
             || matches!((std::fs::canonicalize(s), std::fs::canonicalize(b)), (Ok(x), Ok(y)) if x == y);
         if same {
-            return Err(ScanFailure::new(format!(
-                "--sarif and --baseline name the same file ({}); the report would overwrite its own baseline",
-                b.display()
-            )));
+            return Err(d.preflight_error(
+                crate::doctor::PreflightKind::SarifIsBaseline,
+                format!(
+                    "--sarif and --baseline name the same file ({}); the report would overwrite its own baseline",
+                    b.display()
+                ),
+            ));
         }
     }
     let saved = match &o.baseline {
-        Some(b) => Some(baseline::load_for(d, b)?),
+        Some(b) => Some(d.load_baseline(b)?),
         None => None,
     };
     Ok(Preflight { saved })

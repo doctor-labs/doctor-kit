@@ -169,3 +169,112 @@ fn message_and_cap_are_the_doctors() {
     let f = baseline::load_for(&D, &file("def", "{nope")).unwrap_err();
     assert!(f.stderr.contains("not valid JSON"), "{}", f.stderr);
 }
+
+mod hooks {
+    use super::*;
+    use doctor_kit::{OutputArgs, PreflightKind, ScanFailure};
+
+    /// ble-like: a bare array is NOT a baseline, entries without a fingerprint are skipped, no size cap,
+    /// no "error: " prefix on stderr.
+    struct Strict;
+    impl Doctor for Strict {
+        fn name(&self) -> &str {
+            "strict"
+        }
+        fn version(&self) -> &str {
+            "1"
+        }
+        fn categories(&self) -> Vec<&'static str> {
+            vec![]
+        }
+        fn checks(&self) -> Vec<Box<dyn Check>> {
+            vec![]
+        }
+        fn load_baseline(&self, path: &std::path::Path) -> Result<baseline::Saved, ScanFailure> {
+            let bytes =
+                std::fs::read(path).map_err(|e| ScanFailure::plain(format!("baseline: {e}")))?;
+            let doc: serde_json::Value = serde_json::from_slice(&bytes)
+                .map_err(|e| ScanFailure::plain(format!("baseline: {e}")))?;
+            let list = doc
+                .get("findings")
+                .and_then(|f| f.as_array())
+                .ok_or_else(|| ScanFailure::plain("baseline: not a doctor/1 report"))?;
+            let fingerprints = list
+                .iter()
+                .filter_map(|f| f.get("fingerprint").and_then(|v| v.as_str()))
+                .map(String::from)
+                .collect();
+            Ok(baseline::Saved { fingerprints, doc })
+        }
+        fn preflight_error(&self, kind: PreflightKind, msg: String) -> ScanFailure {
+            match kind {
+                PreflightKind::SarifIsBaseline => ScanFailure::plain(format!("same-file: {msg}")),
+                _ => ScanFailure::new(msg),
+            }
+        }
+    }
+
+    fn opts(baseline: Option<PathBuf>, sarif: Option<PathBuf>) -> OutputArgs {
+        let m = clap::Command::new("x")
+            .args(OutputArgs::args(&Strict))
+            .try_get_matches_from(
+                ["x".to_string()]
+                    .into_iter()
+                    .chain(
+                        baseline
+                            .iter()
+                            .flat_map(|b| ["--baseline".into(), b.display().to_string()]),
+                    )
+                    .chain(
+                        sarif
+                            .iter()
+                            .flat_map(|b| ["--sarif".into(), b.display().to_string()]),
+                    ),
+            )
+            .unwrap();
+        OutputArgs::from_matches(&m, &Strict)
+    }
+
+    #[test]
+    fn a_tools_loader_replaces_the_kit_loader_in_preflight() {
+        // Accepted by the kit loader (bare array), refused by the tool's.
+        let bare = file("hook-bare", r#"[{"fingerprint":"a"}]"#);
+        assert!(doctor_kit::preflight(&D, &opts(Some(bare.clone()), None)).is_ok());
+        let e = doctor_kit::preflight(&Strict, &opts(Some(bare), None)).unwrap_err();
+        assert_eq!(
+            (e.exit, e.stderr.as_str()),
+            (2, "baseline: not a doctor/1 report\n")
+        );
+        // Skips entries with no fingerprint instead of rejecting the file.
+        let ok = file(
+            "hook-ok",
+            r#"{"schema":"doctor/1","findings":[{"id":"x"},{"fingerprint":"b"}]}"#,
+        );
+        assert!(doctor_kit::preflight(&Strict, &opts(Some(ok.clone()), None)).is_ok());
+        let e = doctor_kit::preflight(&D, &opts(Some(ok), None)).unwrap_err();
+        assert!(
+            e.stderr.starts_with("error: ") && e.stderr.contains("not a doctor/1 report"),
+            "{}",
+            e.stderr
+        );
+    }
+
+    #[test]
+    fn preflight_failures_go_through_preflight_error() {
+        let same = file("hook-same", "{}");
+        let e = doctor_kit::preflight(&Strict, &opts(Some(same.clone()), Some(same.clone())))
+            .unwrap_err();
+        assert!(
+            e.stderr.starts_with("same-file: --sarif and --baseline"),
+            "no kit prefix: {}",
+            e.stderr
+        );
+        let e = doctor_kit::preflight(&D, &opts(Some(same.clone()), Some(same))).unwrap_err();
+        assert!(
+            e.stderr.starts_with("error: --sarif and --baseline"),
+            "{}",
+            e.stderr
+        );
+        assert_eq!(ScanFailure::plain("x").stderr, "x\n");
+    }
+}
