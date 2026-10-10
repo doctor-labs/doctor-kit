@@ -11,6 +11,7 @@ pub mod face;
 pub mod fix;
 pub mod install;
 pub mod node;
+pub mod output;
 pub mod session;
 pub mod theme;
 
@@ -27,6 +28,7 @@ pub use config::{Config, Weights};
 pub use doctor::{failure_envelope, Collected, Doctor, ScanFailure, TargetKind};
 pub use face::Face;
 pub use node::{Action, Node};
+pub use output::{finish, preflight, OutputArgs};
 pub use session::{Command, Reply, Session};
 pub use theme::Theme;
 

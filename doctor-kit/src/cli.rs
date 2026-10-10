@@ -2,13 +2,10 @@
 //! Feature `repl`: `shell`; `tui`: `explore`; `mcp`: `mcp`.
 use crate::check::{Ctx, Scope};
 use crate::config::Config;
-use crate::doctor::{is_scored, Doctor};
-use crate::face::{render, Face};
+use crate::doctor::Doctor;
 use crate::install::Agent;
-use crate::theme::Theme;
-use clap::{Args, CommandFactory, FromArgMatches, Parser, Subcommand, ValueEnum};
+use clap::{Args, CommandFactory, FromArgMatches, Parser, Subcommand};
 use doctor_core::Severity;
-use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
@@ -115,40 +112,12 @@ pub(crate) fn parse_sev(s: &str) -> Result<Severity, String> {
         .ok_or_else(|| format!("expected one of info|low|medium|high|critical, got `{s}`"))
 }
 
-#[derive(Clone, Copy, ValueEnum, PartialEq, Eq)]
-enum Color {
-    Auto,
-    Always,
-    Never,
-}
-
 #[derive(Args)]
 struct ScanArgs {
     #[command(flatten)]
     target: Target,
-    /// Output face
-    #[arg(long, value_enum, default_value = "rich")]
-    face: Face,
-    /// mono | clinical | contrast (default: the doctor's own theme)
-    #[arg(long)]
-    theme: Option<String>,
-    /// theme.toml overlay (default: <path>/theme.toml when present)
-    #[arg(long)]
-    theme_file: Option<PathBuf>,
-    #[arg(long, value_enum, default_value = "auto")]
-    color: Color,
-    /// Print the doctor/1 envelope as JSON
-    #[arg(long, conflicts_with_all = ["score", "headless"])]
-    json: bool,
-    /// Print only the score number
-    #[arg(long, conflicts_with = "headless")]
-    score: bool,
-    /// Plain text, no color: for CI and pipes
-    #[arg(long)]
-    headless: bool,
-    /// Also write a SARIF 2.1.0 report to this path
-    #[arg(long)]
-    sarif: Option<PathBuf>,
+    #[command(flatten)]
+    out: crate::output::OutputFlags,
 }
 
 #[cfg(feature = "repl")]
@@ -181,15 +150,6 @@ pub(crate) fn ctx_from(path: &Path, o: &Opts) -> Result<Ctx, String> {
     };
     Ctx::with_base(path, o.scope, o.base.clone(), config, o.fail_on)
         .map_err(|e| format!("{}: {e}", path.display()))
-}
-
-/// Print a failed scan: the envelope on stdout when there is one, then stderr verbatim.
-pub(crate) fn report_failure(d: &dyn Doctor, f: &crate::doctor::ScanFailure) -> u8 {
-    if let Some(env) = &f.envelope {
-        print!("{}", d.render_json(env));
-    }
-    eprint!("{}", f.stderr);
-    f.exit
 }
 
 fn fix(d: &dyn Doctor, a: FixArgs) -> Result<u8, String> {
@@ -227,59 +187,26 @@ fn ci(d: &dyn Doctor, a: CiArgs) -> Result<u8, String> {
     Ok(0)
 }
 
-fn theme_of(base: Theme, a: &ScanArgs) -> Result<Theme, String> {
-    let mut t = match &a.theme {
-        Some(n) => Theme::by_name(n)
-            .ok_or_else(|| format!("unknown theme `{n}` (mono|clinical|contrast)"))?,
-        None => base,
-    };
-    let file = a
-        .theme_file
-        .clone()
-        .or_else(|| Some(a.target.path.join("theme.toml")).filter(|p| p.is_file()));
-    if let Some(p) = file {
-        t = t.with_toml(
-            &std::fs::read_to_string(&p).map_err(|e| format!("{}: {e}", p.display()))?,
-        )?;
-    }
-    t.enabled = !a.headless
-        && match a.color {
-            Color::Always => true,
-            Color::Never => false,
-            Color::Auto => {
-                std::io::stdout().is_terminal() && std::env::var_os("NO_COLOR").is_none()
-            }
-        };
-    Ok(t)
-}
-
 fn scan(d: &dyn Doctor, a: ScanArgs) -> Result<u8, String> {
-    let ctx = ctx_of(&a.target)?;
-    let env = match d.try_scan(&ctx) {
-        Ok(e) => e,
-        Err(f) => return Ok(report_failure(d, &f)),
+    let o = crate::output::OutputArgs {
+        json: a.out.json,
+        score: a.out.score,
+        headless: a.out.headless,
+        face: a.out.face,
+        theme: a.out.theme,
+        theme_file: a.out.theme_file,
+        color: a.out.color,
+        sarif: a.out.sarif,
+        baseline: a.out.baseline,
+        fail_on: a.target.opts.fail_on,
+        theme_root: Some(a.target.path.clone()),
     };
-    if let Some(p) = &a.sarif {
-        let v = crate::session::to_sarif(&env);
-        std::fs::write(p, serde_json::to_string_pretty(&v).unwrap() + "\n")
-            .map_err(|e| format!("{}: {e}", p.display()))?;
-    }
-    if a.json {
-        print!("{}", d.render_json(&env));
-    } else if a.score {
-        println!(
-            "{}",
-            if is_scored(&env.score) {
-                env.score.value.to_string()
-            } else {
-                "n/a".into()
-            }
-        );
-    } else {
-        let face = if a.headless { Face::Plain } else { a.face };
-        print!("{}", render(face, &env, &theme_of(d.theme(), &a)?));
-    }
-    Ok(env.exit_code)
+    let pre = match crate::output::preflight(d, &o) {
+        Ok(p) => p,
+        Err(f) => return Ok(crate::output::report_failure(d, &f)),
+    };
+    let ctx = ctx_of(&a.target)?;
+    Ok(crate::output::finish(d, pre, d.try_scan(&ctx), &o))
 }
 
 fn command_for<D: Doctor>(d: &D) -> clap::Command {
