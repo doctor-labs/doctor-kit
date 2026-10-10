@@ -1,13 +1,15 @@
-//! `run::<D>()`: the whole CLI. `scan` always; `shell` (feature `repl`), `explore` (feature `tui`).
+//! `run::<D>()`: the whole CLI. Always: `scan`, `fix`, `install`, `ci install`.
+//! Feature `repl`: `shell`; `tui`: `explore`; `mcp`: `mcp`.
 use crate::check::{Ctx, Scope};
 use crate::config::Config;
 use crate::doctor::{is_scored, Doctor};
 use crate::face::{render, Face};
+use crate::install::Agent;
 use crate::theme::Theme;
 use clap::{Args, Parser, Subcommand, ValueEnum};
-use doctor_core::Severity;
+use doctor_core::{Envelope, Severity};
 use std::io::IsTerminal;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 #[derive(Parser)]
@@ -27,6 +29,60 @@ enum Cmd {
     /// Full-screen explorer over the same session
     #[cfg(feature = "tui")]
     Explore(Target),
+    /// MCP stdio server exposing `scan` and `fix` as tools
+    #[cfg(feature = "mcp")]
+    Mcp,
+    /// Print (or copy) a prompt for a coding agent from one finding or the whole scan
+    Fix(FixArgs),
+    /// Write an agent skill, Cursor rule and AGENTS.md block into a repo
+    Install(InstallArgs),
+    /// CI helpers
+    Ci(CiArgs),
+}
+
+#[derive(Args)]
+struct FixArgs {
+    /// Finding rule id or fingerprint prefix (default: every finding)
+    id: Option<String>,
+    /// Directory to scan
+    #[arg(short = 'C', long, default_value = ".")]
+    path: PathBuf,
+    #[command(flatten)]
+    opts: Opts,
+    /// Also copy the prompt to the clipboard
+    #[arg(long)]
+    copy: bool,
+}
+
+#[derive(Args)]
+struct InstallArgs {
+    /// Repository to write into
+    #[arg(long, default_value = ".")]
+    dir: PathBuf,
+    /// One agent only (default: all)
+    #[arg(long, value_enum)]
+    agent: Option<Agent>,
+    /// Also add a Claude Code PostToolUse hook that scans changed files after edits
+    #[arg(long)]
+    agent_hooks: bool,
+}
+
+#[derive(Args)]
+struct CiArgs {
+    #[command(subcommand)]
+    action: CiAction,
+}
+
+#[derive(Subcommand)]
+enum CiAction {
+    /// Write a GitHub Actions workflow that scans pull requests
+    Install {
+        #[arg(long, default_value = ".")]
+        dir: PathBuf,
+        /// Print the workflow instead of writing it
+        #[arg(long)]
+        print: bool,
+    },
 }
 
 #[derive(Args)]
@@ -34,18 +90,28 @@ struct Target {
     /// Directory to examine
     #[arg(default_value = ".")]
     path: PathBuf,
-    /// full, or only files in `git diff HEAD`
-    #[arg(long, value_enum, default_value = "full")]
-    scope: Scope,
-    /// doctor.toml (default: <path>/doctor.toml when present)
-    #[arg(long)]
-    config: Option<PathBuf>,
-    /// Exit 1 when a finding is at or above this severity
-    #[arg(long, default_value = "high", value_parser = parse_sev)]
-    fail_on: Severity,
+    #[command(flatten)]
+    opts: Opts,
 }
 
-fn parse_sev(s: &str) -> Result<Severity, String> {
+/// What a scan looks at; shared by `scan`, `fix`, `shell`, `explore` and the MCP tools.
+#[derive(Args)]
+pub(crate) struct Opts {
+    /// full, or only changed files (worktree vs HEAD, untracked, and `--base`)
+    #[arg(long, value_enum, default_value = "full")]
+    pub scope: Scope,
+    /// PR mode: with `--scope changed`, also files changed since merge-base(BASE, HEAD)
+    #[arg(long)]
+    pub base: Option<String>,
+    /// doctor.toml (default: <path>/doctor.toml when present)
+    #[arg(long)]
+    pub config: Option<PathBuf>,
+    /// Exit 1 when a finding is at or above this severity
+    #[arg(long, default_value = "high", value_parser = parse_sev)]
+    pub fail_on: Severity,
+}
+
+pub(crate) fn parse_sev(s: &str) -> Result<Severity, String> {
     Severity::parse(s)
         .ok_or_else(|| format!("expected one of info|low|medium|high|critical, got `{s}`"))
 }
@@ -94,17 +160,60 @@ struct ShellArgs {
 }
 
 fn ctx_of(t: &Target) -> Result<Ctx, String> {
-    let cfg_path = t
+    ctx_from(&t.path, &t.opts)
+}
+
+pub(crate) fn ctx_from(path: &Path, o: &Opts) -> Result<Ctx, String> {
+    let cfg_path = o
         .config
         .clone()
-        .or_else(|| Some(t.path.join("doctor.toml")).filter(|p| p.is_file()));
+        .or_else(|| Some(path.join("doctor.toml")).filter(|p| p.is_file()));
     let config = match cfg_path {
         Some(p) => Config::from_toml(
             &std::fs::read_to_string(&p).map_err(|e| format!("{}: {e}", p.display()))?,
         )?,
         None => Config::default(),
     };
-    Ctx::new(&t.path, t.scope, config, t.fail_on).map_err(|e| format!("{}: {e}", t.path.display()))
+    Ctx::with_base(path, o.scope, o.base.clone(), config, o.fail_on)
+        .map_err(|e| format!("{}: {e}", path.display()))
+}
+
+/// The exact text `scan --json` prints (also the MCP `scan` result).
+pub(crate) fn envelope_text(env: &Envelope) -> String {
+    serde_json::to_string_pretty(env).unwrap() + "\n"
+}
+
+fn fix(d: &dyn Doctor, a: FixArgs) -> Result<u8, String> {
+    let env = d.scan(&ctx_from(&a.path, &a.opts)?);
+    let hits = crate::fix::select(&env, a.id.as_deref())?;
+    if hits.is_empty() {
+        eprintln!("nothing to fix");
+        return Ok(0);
+    }
+    let prompt = d.fix_prompt(&env, &hits);
+    println!("{prompt}");
+    if a.copy {
+        crate::fix::copy(&prompt)?;
+        eprintln!("copied to clipboard");
+    }
+    Ok(0)
+}
+
+fn install(d: &dyn Doctor, a: InstallArgs) -> Result<u8, String> {
+    for p in crate::install::install(d, &a.dir, a.agent, a.agent_hooks)? {
+        println!("wrote {}", p.display());
+    }
+    Ok(0)
+}
+
+fn ci(d: &dyn Doctor, a: CiArgs) -> Result<u8, String> {
+    let CiAction::Install { dir, print } = a.action;
+    if print {
+        print!("{}", d.ci_workflow());
+    } else {
+        println!("wrote {}", crate::install::ci_install(d, &dir)?.display());
+    }
+    Ok(0)
 }
 
 fn theme_of(base: Theme, a: &ScanArgs) -> Result<Theme, String> {
@@ -137,7 +246,7 @@ fn scan(d: &dyn Doctor, a: ScanArgs) -> Result<u8, String> {
     let ctx = ctx_of(&a.target)?;
     let env = d.scan(&ctx);
     if a.json {
-        println!("{}", serde_json::to_string_pretty(&env).unwrap());
+        print!("{}", envelope_text(&env));
     } else if a.score {
         println!(
             "{}",
@@ -157,6 +266,13 @@ fn scan(d: &dyn Doctor, a: ScanArgs) -> Result<u8, String> {
 pub fn run<D: Doctor>(doctor: D) -> ExitCode {
     let res = match Cli::parse().cmd {
         Cmd::Scan(a) => scan(&doctor, a),
+        Cmd::Fix(a) => fix(&doctor, a),
+        Cmd::Install(a) => install(&doctor, a),
+        Cmd::Ci(a) => ci(&doctor, a),
+        #[cfg(feature = "mcp")]
+        Cmd::Mcp => crate::mcp::serve(&doctor)
+            .map(|_| 0)
+            .map_err(|e| e.to_string()),
         #[cfg(feature = "repl")]
         Cmd::Shell(a) => ctx_of(&a.target)
             .and_then(|c| crate::repl::run(&doctor, c, a.command.as_deref()))

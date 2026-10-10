@@ -20,6 +20,8 @@ pub struct Ctx {
     pub files: Vec<PathBuf>,
     pub config: Config,
     pub scope: Scope,
+    /// PR mode: with `Scope::Changed`, also include files changed since `merge-base(base, HEAD)`.
+    pub base: Option<String>,
     pub fail_on: Severity,
 }
 
@@ -30,12 +32,21 @@ impl Ctx {
         config: Config,
         fail_on: Severity,
     ) -> std::io::Result<Ctx> {
+        Self::with_base(root, scope, None, config, fail_on)
+    }
+
+    pub fn with_base(
+        root: impl Into<PathBuf>,
+        scope: Scope,
+        base: Option<String>,
+        config: Config,
+        fail_on: Severity,
+    ) -> std::io::Result<Ctx> {
         let root: PathBuf = root.into();
         let mut files = Vec::new();
         walk(&root, Path::new(""), &mut files)?;
         if scope == Scope::Changed {
-            // ponytail: git-diff stub; staged/untracked/--base are not handled yet.
-            if let Some(changed) = git_changed(&root) {
+            if let Some(changed) = git_changed(&root, base.as_deref()) {
                 files.retain(|f| changed.contains(f));
             }
         }
@@ -45,6 +56,7 @@ impl Ctx {
             files,
             config,
             scope,
+            base,
             fail_on,
         })
     }
@@ -73,18 +85,29 @@ fn walk(root: &Path, rel: &Path, out: &mut Vec<PathBuf>) -> std::io::Result<()> 
     Ok(())
 }
 
-fn git_changed(root: &Path) -> Option<Vec<PathBuf>> {
-    let o = std::process::Command::new("git")
-        .args(["diff", "--name-only", "--relative", "HEAD"])
-        .current_dir(root)
-        .output()
-        .ok()?;
-    o.status.success().then(|| {
-        String::from_utf8_lossy(&o.stdout)
-            .lines()
-            .map(PathBuf::from)
-            .collect()
-    })
+/// Changed files: worktree vs HEAD, untracked, and (PR mode) `base...HEAD`. `None` when git
+/// is unavailable or this is not a repo, so the scan falls back to full.
+fn git_changed(root: &Path, base: Option<&str>) -> Option<Vec<PathBuf>> {
+    let git = |args: &[&str]| {
+        let o = std::process::Command::new("git")
+            .args(args)
+            .current_dir(root)
+            .output()
+            .ok()?;
+        o.status.success().then(|| {
+            String::from_utf8_lossy(&o.stdout)
+                .lines()
+                .map(PathBuf::from)
+                .collect::<Vec<_>>()
+        })
+    };
+    let mut out = git(&["diff", "--name-only", "--relative", "HEAD"])?;
+    out.extend(git(&["ls-files", "--others", "--exclude-standard"]).unwrap_or_default());
+    if let Some(b) = base {
+        let range = format!("{b}...HEAD");
+        out.extend(git(&["diff", "--name-only", "--relative", &range]).unwrap_or_default());
+    }
+    Some(out)
 }
 
 #[derive(Debug, Default)]
