@@ -92,6 +92,9 @@ Options:
       --sarif <SARIF>
           Also write a SARIF 2.1.0 report to this path
 
+      --baseline <BASELINE>
+          Compare with a saved doctor/1 report: findings get baseline_state, exit 3 only for NEW ones
+
   -h, --help
           Print help (see a summary with '-h')
 --- stderr ---

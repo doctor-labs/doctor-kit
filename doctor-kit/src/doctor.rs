@@ -249,6 +249,12 @@ pub trait Doctor {
     fn render_json(&self, env: &Envelope) -> String {
         serde_json::to_string_pretty(env).unwrap() + "\n"
     }
+    /// The SARIF 2.1.0 document written by `--sarif`, as text. Default: the kit's document, pretty
+    /// with a trailing newline. A tool with its own locations or serialisation builds its own
+    /// (e.g. with `doctor_core::sarif::document`).
+    fn render_sarif(&self, env: &Envelope) -> String {
+        serde_json::to_string_pretty(&crate::session::to_sarif(env)).unwrap() + "\n"
+    }
     /// Score from a collected result (gives access to `gaps`). Default: [`Doctor::score`].
     fn score_collected(&self, c: &Collected, ctx: &Ctx) -> Option<Score> {
         self.score(&c.findings, ctx)
