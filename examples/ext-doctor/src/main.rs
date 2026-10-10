@@ -6,8 +6,8 @@ use clap::{Arg, ArgAction, ArgMatches, Command};
 use doctor_core::{Envelope, Finding, Location, LocationKind, Score, Severity};
 use doctor_kit::mcp::{exec_self, ExecOpts};
 use doctor_kit::{
-    failure_envelope, finish, preflight, Check, Collected, Ctx, Doctor, ExtCommand, Extensions,
-    Meta, OutputArgs, ScanFailure, TargetKind,
+    failure_envelope, finish_with, preflight, Check, Collected, Ctx, Doctor, ExtCommand,
+    Extensions, FinishOpts, Meta, OutputArgs, ScanFailure, TargetKind,
 };
 use doctor_kit::{McpTool, McpWire, Protocol};
 use serde_json::json;
@@ -174,10 +174,7 @@ fn scan_cmd() -> Command {
 }
 
 fn report(d: &Ext, m: &ArgMatches, audit: bool) -> Result<u8, String> {
-    let mut o = OutputArgs::from_matches(m, d);
-    if audit {
-        o = o.never_fail();
-    }
+    let o = OutputArgs::from_matches(m, d);
     let pre = match preflight(d, &o) {
         Ok(p) => p,
         Err(f) => return Ok(doctor_kit::output::report_failure(d, &f)),
@@ -187,12 +184,10 @@ fn report(d: &Ext, m: &ArgMatches, audit: bool) -> Result<u8, String> {
         subject: m.get_one::<String>("subject").cloned().unwrap_or_default(),
         human: audit,
     };
-    Ok(finish(
-        &me,
-        pre,
-        me.try_scan(&Ctx::detached(Default::default(), o.fail_on)),
-        &o,
-    ))
+    // `audit` is report-only: findings never fail it, `scan` keeps its --fail-on.
+    let opts = FinishOpts { never_fail: audit };
+    let r = me.try_scan(&Ctx::detached(Default::default(), o.fail_on));
+    Ok(finish_with(&me, pre, r, &o, &opts))
 }
 
 fn scan(d: &Ext, m: &ArgMatches) -> Result<u8, String> {

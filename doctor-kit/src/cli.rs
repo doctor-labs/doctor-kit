@@ -295,7 +295,6 @@ fn scan(d: &dyn Doctor, a: ScanArgs) -> Result<u8, String> {
         baseline: a.out.baseline,
         fail_on: a.target.opts.fail_on,
         theme_root: (d.target() == TargetKind::Dir).then(|| a.target.path.clone()),
-        never_fail: false,
     };
     let pre = match crate::output::preflight(d, &o) {
         Ok(p) => p,

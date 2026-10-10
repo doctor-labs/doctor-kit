@@ -70,9 +70,6 @@ pub struct OutputArgs {
     pub fail_on: Severity,
     /// Where an implicit `theme.toml` is looked for. `None` (tools' own commands) = nowhere.
     pub theme_root: Option<PathBuf>,
-    /// Findings never fail this command: exit 0 whatever their severity, with or without a baseline
-    /// (a report-only command such as an audit). `fail_on` is then unused. See [`OutputArgs::never_fail`].
-    pub never_fail: bool,
 }
 
 impl OutputArgs {
@@ -135,14 +132,7 @@ impl OutputArgs {
                 .copied()
                 .unwrap_or_else(|| d.default_fail_on()),
             theme_root: None,
-            never_fail: false,
         }
-    }
-
-    /// Make findings never fail this command (exit 0): a per-command default for report-only commands.
-    pub fn never_fail(mut self) -> Self {
-        self.never_fail = true;
-        self
     }
 }
 
@@ -226,13 +216,33 @@ fn theme_of(d: &dyn Doctor, o: &OutputArgs) -> Result<Theme, String> {
 ///
 /// On `Err`: print the failure ([`report_failure`]). On `Ok`: apply the baseline (and
 /// [`Doctor::baseline_hook`]), set `env.exit_code` to the process exit code ([`baseline::gate`]:
-/// 0, 1, or 3 under a baseline; always 0 with `never_fail`), write SARIF if asked (atomic; a write failure still prints the
+/// 0, 1, or 3 under a baseline; always 0 under [`FinishOpts::never_fail`]), write SARIF if asked (atomic; a write failure still prints the
 /// report and exits 2), then write the report to stdout once.
 pub fn finish(
     d: &dyn Doctor,
     pre: Preflight,
     r: Result<Envelope, ScanFailure>,
     o: &OutputArgs,
+) -> u8 {
+    finish_with(d, pre, r, o, &FinishOpts::default())
+}
+
+/// Per-command switches of [`finish_with`].
+#[derive(Debug, Clone, Default)]
+pub struct FinishOpts {
+    /// Findings never fail this command: exit 0 whatever their severity, with or without a baseline
+    /// (a report-only command such as an audit); `OutputArgs::fail_on` is then unused.
+    pub never_fail: bool,
+}
+
+/// [`finish`] with per-command switches. Use `FinishOpts { never_fail: true }` for a report-only
+/// command of a tool whose other commands keep their `--fail-on`.
+pub fn finish_with(
+    d: &dyn Doctor,
+    pre: Preflight,
+    r: Result<Envelope, ScanFailure>,
+    o: &OutputArgs,
+    opts: &FinishOpts,
 ) -> u8 {
     let mut env = match r.and_then(|e| crate::interrupt::check(d).map(|_| e)) {
         Ok(e) => e,
@@ -244,7 +254,7 @@ pub fn finish(
             return report_failure(d, &f);
         }
     }
-    let mut code = if o.never_fail {
+    let mut code = if opts.never_fail {
         0
     } else {
         baseline::gate(d, &env, o.fail_on, pre.saved.is_some())
