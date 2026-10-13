@@ -24,6 +24,8 @@ public struct, new behaviour sits behind defaulted hooks or new functions, and `
   An `INCOMPLETE` banner when `score.coverage_gaps > 0` and `data.notes` are shown first by the faces,
   `shell` and `explore`; never in `--json` or SARIF.
 - `out::say` and the `say!`/`sayln!` macros (fallible stdout).
+- Scan progress events: `Progress`/`ProgressEvent` and `Ctx::with_progress`, emitted from the scan loop
+  (no output by default) (#29).
 
 ## 0.2.1
 

@@ -23,9 +23,21 @@ pub struct Ctx {
     /// PR mode: with `Scope::Changed`, also include files changed since `merge-base(base, HEAD)`.
     pub base: Option<String>,
     pub fail_on: Severity,
+    /// Optional sink for scan progress events (issue #29). Private: callers set it
+    /// via [`Ctx::with_progress`]; the field stays `pub`-invisible so deriving
+    /// `Debug`/`Clone` on `Ctx` is unaffected. Defaults to a no-op sink.
+    pub(crate) progress: crate::progress::ProgressSink,
 }
 
 impl Ctx {
+    /// Attach a progress sink to this context. The sink receives
+    /// [`crate::ProgressEvent`]s from the scan loop (issue #29). Returns `self`
+    /// by value for chaining: `ctx.with_progress(progress)`.
+    pub fn with_progress(mut self, p: std::sync::Arc<dyn crate::Progress>) -> Ctx {
+        self.progress = crate::progress::ProgressSink::from_arc(p);
+        self
+    }
+
     pub fn new(
         root: impl Into<PathBuf>,
         scope: Scope,
@@ -58,6 +70,7 @@ impl Ctx {
             scope,
             base,
             fail_on,
+            progress: crate::progress::ProgressSink::default(),
         })
     }
 
@@ -71,6 +84,7 @@ impl Ctx {
             scope: Scope::Full,
             base: None,
             fail_on,
+            progress: crate::progress::ProgressSink::default(),
         }
     }
 
