@@ -66,8 +66,12 @@ struct Recorder(Mutex<Vec<String>>);
 impl Progress for Recorder {
     fn event(&self, e: &ProgressEvent) {
         let line = match e {
-            ProgressEvent::CheckStarted { id, index, total } => format!("start {id} {index}/{total}"),
-            ProgressEvent::CheckSkipped { id, index, total } => format!("skip {id} {index}/{total}"),
+            ProgressEvent::CheckStarted { id, index, total } => {
+                format!("start {id} {index}/{total}")
+            }
+            ProgressEvent::CheckSkipped { id, index, total } => {
+                format!("skip {id} {index}/{total}")
+            }
             ProgressEvent::Finding { id, severity, .. } => {
                 format!("finding {id} {}", format!("{severity:?}").to_lowercase())
             }
@@ -109,6 +113,9 @@ fn the_scan_loop_reports_each_check_finding_skip_and_the_end_in_order() {
 fn a_progress_sink_never_changes_the_scan_result() {
     let plain = D.scan(&ctx());
     let watched = D.scan(&ctx().with_progress(Arc::new(Recorder::default())));
-    assert_eq!(format!("{:?}", plain.findings), format!("{:?}", watched.findings));
+    assert_eq!(
+        format!("{:?}", plain.findings),
+        format!("{:?}", watched.findings)
+    );
     assert_eq!(plain.exit_code, watched.exit_code);
 }
