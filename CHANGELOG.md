@@ -50,6 +50,10 @@ public struct, new behaviour sits behind defaulted hooks or new functions, and `
   (JSON-RPC 2.0); notifications stay silent.
 
 ### Added
+- Terminal status line: `ProgressView` and `StderrProgress` (a `Progress` sink that writes
+  `[bar] done/total \u{b7} <n> <severity> \u{b7} latest: <finding>` to stderr), attached to `scan` and
+  `fix` only when stderr is a terminal; off under pipes and CI so JSON/SARIF/stdout output stays
+  byte-identical (#29).
 - `Doctor::interrupted_envelope(&Envelope) -> Option<Envelope>`: the tool's shape for the Ctrl-C envelope.
 - `mcp::exec_self_with` + `ExecFailure` (kind, stdout, stderr, code, signal, limits): the tool words every
   runner error; `mcp::fill` with `{x}`, `{x_json}` (JSON literal) and `{x_esc}` (escaped) placeholders in
