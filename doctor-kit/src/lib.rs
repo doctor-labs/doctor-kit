@@ -40,6 +40,7 @@ pub mod interrupt;
 pub mod node;
 pub mod out;
 pub mod output;
+pub mod progress;
 pub mod session;
 pub mod theme;
 
@@ -57,6 +58,7 @@ pub use face::{Face, Note, NoteLevel};
 pub use mcp::{McpTexts, McpTool, McpWire, Protocol};
 pub use node::{Action, Node};
 pub use output::{finish, finish_with, preflight, FinishOpts, OutputArgs};
+pub use progress::{Progress, ProgressEvent};
 pub use session::{Command, Reply, Session};
 pub use theme::Theme;
 

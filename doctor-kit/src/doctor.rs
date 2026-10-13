@@ -385,18 +385,34 @@ pub trait Doctor {
     /// Default: run applicable, enabled checks; `data` = categories, checks_run, skipped, advice,
     /// scope, files.
     fn collect(&self, ctx: &Ctx) -> Result<Collected, ScanFailure> {
+        use crate::progress::ProgressEvent;
         let cats = self.categories();
         let (mut findings, mut advice, mut skipped) = (Vec::new(), Map::new(), Vec::new());
         let mut check_data = crate::check::CheckData::new();
         let mut reserved_hits: Vec<String> = Vec::new();
         let (mut ran, mut panicked) = (0, Vec::new());
-        for c in self.checks() {
+        let checks: Vec<Box<dyn Check>> = self.checks();
+        let total = checks.len();
+        let progress: &dyn crate::progress::Progress = ctx.progress.as_progress();
+        for (i, c) in checks.into_iter().enumerate() {
+            let index = i + 1;
             if !ctx.config.check_enabled(c.id()) || !c.applies(ctx) {
+                progress.event(&ProgressEvent::CheckSkipped {
+                    id: c.id().to_string(),
+                    index,
+                    total,
+                });
                 skipped.push(c.id());
                 continue;
             }
+            progress.event(&ProgressEvent::CheckStarted {
+                id: c.id().to_string(),
+                index,
+                total,
+            });
             crate::interrupt::check(self)?;
             ran += 1;
+            let emitted_before = findings.len();
             // A panicking check becomes a high-severity finding; the scan continues.
             let r = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| c.run_data(ctx)))
             {
@@ -442,9 +458,23 @@ pub trait Doctor {
                 if self.tag_checks() {
                     f.extra.insert("check".into(), c.id().into());
                 }
+                let emitted = ProgressEvent::Finding {
+                    id: f.id.clone(),
+                    severity: f.severity,
+                    message: f.message.clone(),
+                };
+                progress.event(&emitted);
                 findings.push(f);
             }
+            let emitted = findings.len() - emitted_before;
+            progress.event(&ProgressEvent::CheckFinished {
+                id: c.id().to_string(),
+                findings: emitted,
+            });
         }
+        progress.event(&ProgressEvent::Done {
+            findings: findings.len(),
+        });
         let mut data = json!({
             "categories": cats, "checks_run": ran, "skipped": skipped,
             "advice": advice, "scope": format!("{:?}", ctx.scope).to_lowercase(),
