@@ -7,6 +7,9 @@ use crate::node::{hex, hexdump, parse_hex, Node};
 use doctor_core::{sarif, Envelope, Finding};
 use serde_json::{json, Value};
 
+/// A tool's `find` predicate over a tree node (see `Doctor::find_filter`).
+pub type FindFilter = Box<dyn Fn(&Node) -> bool>;
+
 pub enum Outcome {
     Text(String),
     Quit,
@@ -325,7 +328,7 @@ impl<'a> Session<'a> {
             }
             "cat" => self.cat(sel),
             "info" => self.info(sel),
-            "find" => self.find(&a.join(" ")),
+            "find" => self.find_args(&a),
             "decode" => {
                 let n = self.node(sel)?;
                 let t = self.doctor.decode(n).unwrap_or_else(|| default_decode(n));
@@ -438,11 +441,21 @@ impl<'a> Session<'a> {
         if q.is_empty() {
             return Err("usage: find <text>".into());
         }
+        Ok(self.find_by(&|n| n.matches(q)))
+    }
+
+    /// `find` with the nodes for which `keep` is true (at most 100), in tree order.
+    fn find_by(&self, keep: &dyn Fn(&Node) -> bool) -> Reply {
         let mut hits = vec![];
-        fn walk(n: &Node, path: String, q: &str, out: &mut Vec<(String, Value, String)>) {
+        fn walk(
+            n: &Node,
+            path: String,
+            keep: &dyn Fn(&Node) -> bool,
+            out: &mut Vec<(String, Value, String)>,
+        ) {
             for c in &n.children {
                 let p = format!("{path}/{}", c.name);
-                if c.matches(q) {
+                if keep(c) {
                     let line = format!("{p:<28} {:<9} {}", c.kind, c.summary);
                     out.push((
                         p.clone(),
@@ -450,24 +463,32 @@ impl<'a> Session<'a> {
                         line,
                     ));
                 }
-                walk(c, p, q, out);
+                walk(c, p, keep, out);
             }
         }
-        walk(&self.tree, String::new(), q, &mut hits);
+        walk(&self.tree, String::new(), keep, &mut hits);
         hits.truncate(100);
         let text = hits
             .iter()
             .map(|h| h.2.clone())
             .collect::<Vec<_>>()
             .join("\n");
-        Ok(Reply::new(
+        Reply::new(
             if text.is_empty() {
                 "(no matches)".into()
             } else {
                 text
             },
             json!(hits.into_iter().map(|h| h.1).collect::<Vec<_>>()),
-        ))
+        )
+    }
+
+    /// `find` words: the tool's own predicate when it has one, else the text search.
+    fn find_args(&self, a: &[String]) -> Result<Reply, String> {
+        match self.doctor.find_filter(a)? {
+            Some(keep) => Ok(self.find_by(&*keep)),
+            None => self.find(&a.join(" ")),
+        }
     }
 
     fn raw(&self, arg: &str) -> Result<Reply, String> {
@@ -748,7 +769,10 @@ pub fn to_sarif(env: &Envelope) -> Value {
 
 /// SARIF with per-rule metadata from `meta` (by rule id). Rules are listed once each, sorted by id.
 /// A rule without metadata is `{"id": ...}`.
-pub fn to_sarif_with(env: &Envelope, meta: &dyn Fn(&str) -> Option<crate::check::RuleMeta>) -> Value {
+pub fn to_sarif_with(
+    env: &Envelope,
+    meta: &dyn Fn(&str) -> Option<crate::check::RuleMeta>,
+) -> Value {
     let mut ids: Vec<&str> = env.findings.iter().map(|f| f.id.as_str()).collect();
     ids.sort_unstable();
     ids.dedup();

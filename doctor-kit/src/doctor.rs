@@ -269,6 +269,12 @@ pub trait Doctor {
     fn walk_options(&self) -> crate::check::WalkOptions {
         crate::check::WalkOptions::default()
     }
+    /// The predicate for `shell` `find`, from the words after `find` (the tool's own options such
+    /// as `--name` or `--selinux`). `Ok(None)` (default): the kit's text search. `Ok(Some(p))`: the
+    /// kit walks the tree and lists the nodes where `p` is true. `Err` is the usage error.
+    fn find_filter(&self, _args: &[String]) -> Result<Option<crate::session::FindFilter>, String> {
+        Ok(None)
+    }
     fn default_fail_on(&self) -> Severity {
         Severity::High
     }
@@ -351,8 +357,10 @@ pub trait Doctor {
         None
     }
     fn render_sarif(&self, env: &Envelope) -> String {
-        serde_json::to_string_pretty(&crate::session::to_sarif_with(env, &|id| self.rule_meta(id)))
-            .unwrap()
+        serde_json::to_string_pretty(&crate::session::to_sarif_with(env, &|id| {
+            self.rule_meta(id)
+        }))
+        .unwrap()
             + "\n"
     }
     /// Score from a collected result (gives access to `gaps`). Default: [`Doctor::score`].
@@ -375,7 +383,8 @@ pub trait Doctor {
             crate::interrupt::check(self)?;
             ran += 1;
             // A panicking check becomes a high-severity finding; the scan continues.
-            let r = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| c.run_data(ctx))) {
+            let r = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| c.run_data(ctx)))
+            {
                 Ok((r, d)) => {
                     check_data.extend(d);
                     r

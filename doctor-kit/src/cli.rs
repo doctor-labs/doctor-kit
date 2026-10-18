@@ -169,8 +169,15 @@ pub(crate) fn ctx_from(d: &dyn Doctor, path: &Path, o: &Opts) -> Result<Ctx, Str
     if detached {
         return Ok(Ctx::detached(config, o.fail_on));
     }
-    Ctx::with_walk(path, o.scope, o.base.clone(), config, o.fail_on, &d.walk_options())
-        .map_err(|e| format!("{}: {e}", path.display()))
+    Ctx::with_walk(
+        path,
+        o.scope,
+        o.base.clone(),
+        config,
+        o.fail_on,
+        &d.walk_options(),
+    )
+    .map_err(|e| format!("{}: {e}", path.display()))
 }
 
 fn fix(d: &dyn Doctor, a: FixArgs) -> Result<u8, String> {

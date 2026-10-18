@@ -1,7 +1,7 @@
 //! 0.2.3 (#35): a check contributes keyed data into `envelope.data` through `Check::run_data`.
-use doctor_kit::{Check, CheckResult, Config, Ctx, Doctor, Scope};
-use doctor_kit::doctor_core::Severity;
 use doctor_kit::check::CheckData;
+use doctor_kit::doctor_core::Severity;
+use doctor_kit::{Check, CheckResult, Config, Ctx, Doctor, Scope};
 use serde_json::{json, Value};
 
 struct Quiet;
@@ -76,7 +76,12 @@ fn scan<D: Doctor>(d: &D) -> Value {
 #[test]
 fn default_check_adds_no_keys() {
     let data = scan(&Plain);
-    let keys: Vec<&str> = data.as_object().unwrap().keys().map(String::as_str).collect();
+    let keys: Vec<&str> = data
+        .as_object()
+        .unwrap()
+        .keys()
+        .map(String::as_str)
+        .collect();
     assert!(!keys.contains(&"file_map"));
     assert!(keys.contains(&"checks_run"));
 }

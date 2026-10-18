@@ -24,7 +24,10 @@ fn tree(name: &str) -> PathBuf {
 }
 
 fn rels(ctx: &Ctx) -> Vec<String> {
-    ctx.files.iter().map(|p| p.to_string_lossy().into_owned()).collect()
+    ctx.files
+        .iter()
+        .map(|p| p.to_string_lossy().into_owned())
+        .collect()
 }
 
 struct Plain;
@@ -76,8 +79,15 @@ fn opt_in_includes_hidden_and_overrides_skip_list() {
     let opts = WalkOptions::new()
         .include_hidden(true)
         .skip_names(["node_modules"]);
-    let ctx = Ctx::with_walk(&root, Scope::Full, None, Config::default(), Severity::High, &opts)
-        .unwrap();
+    let ctx = Ctx::with_walk(
+        &root,
+        Scope::Full,
+        None,
+        Config::default(),
+        Severity::High,
+        &opts,
+    )
+    .unwrap();
     assert_eq!(
         rels(&ctx),
         vec![".hidden", "a.txt", "sub/.env", "sub/b.txt", "target/t.txt"]
@@ -101,11 +111,16 @@ fn report_skipped_adds_an_info_note_only_when_opted_in() {
     let root = tree("walk-note");
     let ctx = Ctx::new(&root, Scope::Full, Config::default(), Severity::High).unwrap();
     let plain = Plain.scan(&ctx);
-    assert!(plain.data.get("notes").is_none(), "default output must not change");
+    assert!(
+        plain.data.get("notes").is_none(),
+        "default output must not change"
+    );
     let env = Opted.scan(&ctx);
     let notes = env.data["notes"].as_array().expect("notes array");
     assert_eq!(notes.len(), 1);
     assert_eq!(notes[0]["level"], "info");
-    assert!(notes[0]["text"].as_str().unwrap().starts_with("4 entries skipped"));
+    assert!(notes[0]["text"]
+        .as_str()
+        .unwrap()
+        .starts_with("4 entries skipped"));
 }
-

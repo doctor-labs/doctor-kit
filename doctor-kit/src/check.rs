@@ -144,7 +144,12 @@ impl WalkOptions {
     }
 }
 
-fn walk(root: &Path, rel: &Path, out: &mut Vec<PathBuf>, opts: &WalkOptions) -> std::io::Result<()> {
+fn walk(
+    root: &Path,
+    rel: &Path,
+    out: &mut Vec<PathBuf>,
+    opts: &WalkOptions,
+) -> std::io::Result<()> {
     for e in std::fs::read_dir(root.join(rel))? {
         let e = e?;
         let name = e.file_name();
@@ -165,7 +170,12 @@ fn walk(root: &Path, rel: &Path, out: &mut Vec<PathBuf>, opts: &WalkOptions) -> 
 /// Entries that the walk under `opts` drops, relative to `root`, sorted. A skipped directory is
 /// one entry; its contents are not listed.
 pub fn skipped_entries(root: &Path, opts: &WalkOptions) -> std::io::Result<Vec<PathBuf>> {
-    fn go(root: &Path, rel: &Path, opts: &WalkOptions, out: &mut Vec<PathBuf>) -> std::io::Result<()> {
+    fn go(
+        root: &Path,
+        rel: &Path,
+        opts: &WalkOptions,
+        out: &mut Vec<PathBuf>,
+    ) -> std::io::Result<()> {
         for e in std::fs::read_dir(root.join(rel))? {
             let e = e?;
             let name = e.file_name();

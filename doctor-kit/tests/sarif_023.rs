@@ -65,7 +65,11 @@ fn rules_are_sorted_and_unique_by_id() {
     let rules = v["runs"][0]["tool"]["driver"]["rules"].as_array().unwrap();
     let ids: Vec<&str> = rules.iter().map(|r| r["id"].as_str().unwrap()).collect();
     assert_eq!(ids, vec!["a.one", "a.two"]);
-    assert_eq!(rules[1], serde_json::json!({"id": "a.two"}), "no metadata: id only");
+    assert_eq!(
+        rules[1],
+        serde_json::json!({"id": "a.two"}),
+        "no metadata: id only"
+    );
 }
 
 #[test]
@@ -80,6 +84,9 @@ fn rule_metadata_is_emitted_when_supplied() {
     assert_eq!(one["shortDescription"]["text"], "short text");
     assert_eq!(one["fullDescription"]["text"], "full text");
     assert_eq!(one["helpUri"], "https://example.test/a.one");
-    assert_eq!(one["defaultConfiguration"]["level"], Severity::High.sarif_level());
+    assert_eq!(
+        one["defaultConfiguration"]["level"],
+        Severity::High.sarif_level()
+    );
     assert_eq!(rules[1], serde_json::json!({"id": "a.two"}));
 }
