@@ -219,7 +219,10 @@ impl Check for Large {
             .filter(|f| std::fs::metadata(ctx.root.join(f)).is_ok_and(|m| m.len() > 4096))
             .collect();
         let mut data = doctor_kit::check::CheckData::new();
-        let names: Vec<String> = big.iter().map(|f| f.to_string_lossy().into_owned()).collect();
+        let names: Vec<String> = big
+            .iter()
+            .map(|f| f.to_string_lossy().into_owned())
+            .collect();
         data.insert("large_files".into(), serde_json::json!(names));
         let findings = big
             .into_iter()
