@@ -365,6 +365,7 @@ pub trait Doctor {
     fn collect(&self, ctx: &Ctx) -> Result<Collected, ScanFailure> {
         let cats = self.categories();
         let (mut findings, mut advice, mut skipped) = (Vec::new(), Map::new(), Vec::new());
+        let mut check_data = crate::check::CheckData::new();
         let (mut ran, mut panicked) = (0, Vec::new());
         for c in self.checks() {
             if !ctx.config.check_enabled(c.id()) || !c.applies(ctx) {
@@ -374,8 +375,11 @@ pub trait Doctor {
             crate::interrupt::check(self)?;
             ran += 1;
             // A panicking check becomes a high-severity finding; the scan continues.
-            let r = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| c.run(ctx))) {
-                Ok(r) => r,
+            let r = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| c.run_data(ctx))) {
+                Ok((r, d)) => {
+                    check_data.extend(d);
+                    r
+                }
                 Err(p) => {
                     let why = p
                         .downcast_ref::<&str>()
@@ -413,6 +417,9 @@ pub trait Doctor {
             "advice": advice, "scope": format!("{:?}", ctx.scope).to_lowercase(),
             "files": ctx.files.len(),
         });
+        if let Value::Object(m) = &mut data {
+            m.extend(check_data);
+        }
         let walk_opts = self.walk_options();
         if walk_opts.reports_skipped() {
             let skipped = crate::check::skipped_entries(&ctx.root, &walk_opts).unwrap_or_default();

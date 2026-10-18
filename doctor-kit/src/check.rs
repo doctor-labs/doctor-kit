@@ -297,7 +297,18 @@ pub trait Check {
         true
     }
     fn run(&self, ctx: &Ctx) -> CheckResult;
+    /// `run` plus keyed JSON for `envelope.data` (see [`CheckData`]). Default: `run` and no data.
+    /// A check that contributes data overrides this and implements `run` as `self.run_data(ctx).0`.
+    fn run_data(&self, ctx: &Ctx) -> (CheckResult, CheckData) {
+        (self.run(ctx), CheckData::new())
+    }
 }
+
+/// Keyed JSON one check contributes to `envelope.data`, merged after the kit's own keys in
+/// registration order: a later check with the same key replaces the earlier value. Do not use a
+/// kit key (`categories`, `checks_run`, `skipped`, `advice`, `scope`, `files`, `panicked`,
+/// `notes`): it would replace the kit's value.
+pub type CheckData = serde_json::Map<String, serde_json::Value>;
 
 /// Build a finding with a stable fingerprint (`id|file|line`) and a sanitized message.
 /// Set `.remedy` / `.evidence` on the result as needed.

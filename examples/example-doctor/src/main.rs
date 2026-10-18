@@ -209,12 +209,21 @@ impl Check for Large {
         "size"
     }
     fn run(&self, ctx: &Ctx) -> CheckResult {
-        let big = ctx
+        self.run_data(ctx).0
+    }
+    /// Also contributes `large_files` (sorted paths) to `envelope.data` (0.2.3 `run_data`).
+    fn run_data(&self, ctx: &Ctx) -> (CheckResult, doctor_kit::check::CheckData) {
+        let big: Vec<&std::path::PathBuf> = ctx
             .files
             .iter()
-            .filter(|f| std::fs::metadata(ctx.root.join(f)).is_ok_and(|m| m.len() > 4096));
-        CheckResult::findings(
-            big.map(|f| {
+            .filter(|f| std::fs::metadata(ctx.root.join(f)).is_ok_and(|m| m.len() > 4096))
+            .collect();
+        let mut data = doctor_kit::check::CheckData::new();
+        let names: Vec<String> = big.iter().map(|f| f.to_string_lossy().into_owned()).collect();
+        data.insert("large_files".into(), serde_json::json!(names));
+        let findings = big
+            .into_iter()
+            .map(|f| {
                 let mut x = finding(
                     self.id(),
                     "size",
@@ -226,8 +235,8 @@ impl Check for Large {
                 x.remedy = Some("Split it or move it out of the repo.".into());
                 x
             })
-            .collect(),
-        )
+            .collect();
+        (CheckResult::findings(findings), data)
     }
 }
 
