@@ -528,12 +528,13 @@ impl<'a> Session<'a> {
         let ctx = if self.doctor.target() == crate::TargetKind::Detached {
             Ctx::detached(self.ctx.config.clone(), self.ctx.fail_on)
         } else {
-            Ctx::with_base(
+            Ctx::with_walk(
                 &self.ctx.root,
                 self.ctx.scope,
                 self.ctx.base.clone(),
                 self.ctx.config.clone(),
                 self.ctx.fail_on,
+                &self.doctor.walk_options(),
             )
             .map_err(|e| e.to_string())?
         };

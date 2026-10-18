@@ -265,6 +265,10 @@ pub trait Doctor {
         true
     }
     /// Severity used for `--fail-on` when the flag is absent.
+    /// The directory walk behind `Ctx` (`cli` and the `shell` rescan). Default: the 0.2.2 walk.
+    fn walk_options(&self) -> crate::check::WalkOptions {
+        crate::check::WalkOptions::default()
+    }
     fn default_fail_on(&self) -> Severity {
         Severity::High
     }
@@ -402,6 +406,23 @@ pub trait Doctor {
             "advice": advice, "scope": format!("{:?}", ctx.scope).to_lowercase(),
             "files": ctx.files.len(),
         });
+        let walk_opts = self.walk_options();
+        if walk_opts.reports_skipped() {
+            let skipped = crate::check::skipped_entries(&ctx.root, &walk_opts).unwrap_or_default();
+            if !skipped.is_empty() {
+                let shown: Vec<String> = skipped
+                    .iter()
+                    .take(5)
+                    .map(|p| p.to_string_lossy().into_owned())
+                    .collect();
+                let more = if skipped.len() > 5 { ", ..." } else { "" };
+                data["notes"] = json!([{"level": "info", "text": format!(
+                    "{} entries skipped by the directory walk: {}{more}",
+                    skipped.len(),
+                    shown.join(", ")
+                )}]);
+            }
+        }
         if !panicked.is_empty() {
             data["panicked"] = json!(panicked); // only present when a check panicked
         }
