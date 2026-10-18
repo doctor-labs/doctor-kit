@@ -34,6 +34,20 @@ pub struct Collected {
     pub gaps: usize,
 }
 
+/// Keys the kit writes into `envelope.data`. A check's `run_data` may not use them: such a key is
+/// ignored and reported as an info note in `data.notes`. Keep this list in step with `collect`
+/// (a test in `tests/datachan_023.rs` fails when they differ).
+pub const RESERVED_DATA_KEYS: &[&str] = &[
+    "categories",
+    "checks_run",
+    "skipped",
+    "advice",
+    "scope",
+    "files",
+    "panicked",
+    "notes",
+];
+
 /// Why a scan could not produce a report. `finish` (and the CLI) print `envelope` on stdout when
 /// present, then `stderr` verbatim, then exit with `exit`. (Boxed: an envelope is large.)
 #[derive(Debug, Clone)]
@@ -265,6 +279,16 @@ pub trait Doctor {
         true
     }
     /// Severity used for `--fail-on` when the flag is absent.
+    /// The directory walk behind `Ctx` (`cli` and the `shell` rescan). Default: the 0.2.2 walk.
+    fn walk_options(&self) -> crate::check::WalkOptions {
+        crate::check::WalkOptions::default()
+    }
+    /// The predicate for `shell` `find`, from the words after `find` (the tool's own options such
+    /// as `--name` or `--selinux`). `Ok(None)` (default): the kit's text search. `Ok(Some(p))`: the
+    /// kit walks the tree and lists the nodes where `p` is true. `Err` is the usage error.
+    fn find_filter(&self, _args: &[String]) -> Result<Option<crate::session::FindFilter>, String> {
+        Ok(None)
+    }
     fn default_fail_on(&self) -> Severity {
         Severity::High
     }
@@ -341,8 +365,17 @@ pub trait Doctor {
     /// The SARIF 2.1.0 document written by `--sarif`, as text. Default: the kit's document, pretty
     /// with a trailing newline. A tool with its own locations or serialisation builds its own
     /// (e.g. with `doctor_core::sarif::document`).
+    /// SARIF metadata for a rule id: name, descriptions, help URI, default level. Default: none,
+    /// so the rule is `{"id": ...}` as in 0.2.2.
+    fn rule_meta(&self, _id: &str) -> Option<crate::check::RuleMeta> {
+        None
+    }
     fn render_sarif(&self, env: &Envelope) -> String {
-        serde_json::to_string_pretty(&crate::session::to_sarif(env)).unwrap() + "\n"
+        serde_json::to_string_pretty(&crate::session::to_sarif_with(env, &|id| {
+            self.rule_meta(id)
+        }))
+        .unwrap()
+            + "\n"
     }
     /// Score from a collected result (gives access to `gaps`). Default: [`Doctor::score`].
     fn score_collected(&self, c: &Collected, ctx: &Ctx) -> Option<Score> {
@@ -354,6 +387,8 @@ pub trait Doctor {
     fn collect(&self, ctx: &Ctx) -> Result<Collected, ScanFailure> {
         let cats = self.categories();
         let (mut findings, mut advice, mut skipped) = (Vec::new(), Map::new(), Vec::new());
+        let mut check_data = crate::check::CheckData::new();
+        let mut reserved_hits: Vec<String> = Vec::new();
         let (mut ran, mut panicked) = (0, Vec::new());
         for c in self.checks() {
             if !ctx.config.check_enabled(c.id()) || !c.applies(ctx) {
@@ -363,8 +398,21 @@ pub trait Doctor {
             crate::interrupt::check(self)?;
             ran += 1;
             // A panicking check becomes a high-severity finding; the scan continues.
-            let r = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| c.run(ctx))) {
-                Ok(r) => r,
+            let r = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| c.run_data(ctx)))
+            {
+                Ok((r, d)) => {
+                    for (k, v) in d {
+                        if RESERVED_DATA_KEYS.contains(&k.as_str()) {
+                            reserved_hits.push(format!(
+                                "check {} data key {k} is reserved by the kit and was ignored",
+                                c.id()
+                            ));
+                        } else {
+                            check_data.insert(k, v);
+                        }
+                    }
+                    r
+                }
                 Err(p) => {
                     let why = p
                         .downcast_ref::<&str>()
@@ -402,6 +450,35 @@ pub trait Doctor {
             "advice": advice, "scope": format!("{:?}", ctx.scope).to_lowercase(),
             "files": ctx.files.len(),
         });
+        let mut notes: Vec<Value> = Vec::new();
+        let walk_opts = self.walk_options();
+        if walk_opts.reports_skipped() {
+            let skipped = crate::check::skipped_entries(&ctx.root, &walk_opts).unwrap_or_default();
+            if !skipped.is_empty() {
+                let shown: Vec<String> = skipped
+                    .iter()
+                    .take(5)
+                    .map(|p| p.to_string_lossy().into_owned())
+                    .collect();
+                let more = if skipped.len() > 5 { ", ..." } else { "" };
+                notes.push(json!({"level": "info", "text": format!(
+                    "{} entries skipped by the directory walk: {}{more}",
+                    skipped.len(),
+                    shown.join(", ")
+                )}));
+            }
+        }
+        notes.extend(
+            reserved_hits
+                .iter()
+                .map(|t| json!({"level": "info", "text": t})),
+        );
+        if !notes.is_empty() {
+            data["notes"] = Value::Array(notes);
+        }
+        if let Value::Object(m) = &mut data {
+            m.extend(check_data);
+        }
         if !panicked.is_empty() {
             data["panicked"] = json!(panicked); // only present when a check panicked
         }

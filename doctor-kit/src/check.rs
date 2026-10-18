@@ -42,9 +42,21 @@ impl Ctx {
         config: Config,
         fail_on: Severity,
     ) -> std::io::Result<Ctx> {
+        Self::with_walk(root, scope, base, config, fail_on, &WalkOptions::default())
+    }
+
+    /// `with_base` with the directory walk chosen by the tool (see [`WalkOptions`]).
+    pub fn with_walk(
+        root: impl Into<PathBuf>,
+        scope: Scope,
+        base: Option<String>,
+        config: Config,
+        fail_on: Severity,
+        walk_opts: &WalkOptions,
+    ) -> std::io::Result<Ctx> {
         let root: PathBuf = root.into();
         let mut files = Vec::new();
-        walk(&root, Path::new(""), &mut files)?;
+        walk(&root, Path::new(""), &mut files, walk_opts)?;
         if scope == Scope::Changed {
             if let Some(changed) = git_changed(&root, base.as_deref()) {
                 files.retain(|f| changed.contains(f));
@@ -80,22 +92,106 @@ impl Ctx {
     }
 }
 
-fn walk(root: &Path, rel: &Path, out: &mut Vec<PathBuf>) -> std::io::Result<()> {
+/// What the directory walk includes. The default is the 0.2.2 walk: dot-entries, `target` and
+/// `node_modules` are skipped without a trace.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WalkOptions {
+    include_hidden: bool,
+    skip: Vec<String>,
+    report_skipped: bool,
+}
+
+impl Default for WalkOptions {
+    fn default() -> Self {
+        WalkOptions {
+            include_hidden: false,
+            skip: vec!["target".into(), "node_modules".into()],
+            report_skipped: false,
+        }
+    }
+}
+
+impl WalkOptions {
+    pub fn new() -> Self {
+        Self::default()
+    }
+    /// Walk dot-named files and directories too (default: skipped).
+    pub fn include_hidden(mut self, yes: bool) -> Self {
+        self.include_hidden = yes;
+        self
+    }
+    /// Exact entry names to skip, replacing the default `target` and `node_modules`. Dot-names
+    /// stay governed by `include_hidden`.
+    pub fn skip_names<I, S>(mut self, names: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.skip = names.into_iter().map(Into::into).collect();
+        self
+    }
+    /// Add an info note to `data.notes` naming the skipped entries (default: no note). The note
+    /// is not a coverage gap: no INCOMPLETE banner and no score change.
+    pub fn report_skipped(mut self, yes: bool) -> Self {
+        self.report_skipped = yes;
+        self
+    }
+    pub fn reports_skipped(&self) -> bool {
+        self.report_skipped
+    }
+    fn skips(&self, name: &str) -> bool {
+        (!self.include_hidden && name.starts_with('.')) || self.skip.iter().any(|s| s == name)
+    }
+}
+
+fn walk(
+    root: &Path,
+    rel: &Path,
+    out: &mut Vec<PathBuf>,
+    opts: &WalkOptions,
+) -> std::io::Result<()> {
     for e in std::fs::read_dir(root.join(rel))? {
         let e = e?;
         let name = e.file_name();
-        if name.to_string_lossy().starts_with('.') || name == "target" || name == "node_modules" {
+        if opts.skips(&name.to_string_lossy()) {
             continue;
         }
         let p = rel.join(&name);
         // file_type does not follow symlinks, so links are skipped.
         match e.file_type()? {
-            t if t.is_dir() => walk(root, &p, out)?,
+            t if t.is_dir() => walk(root, &p, out, opts)?,
             t if t.is_file() => out.push(p),
             _ => {}
         }
     }
     Ok(())
+}
+
+/// Entries that the walk under `opts` drops, relative to `root`, sorted. A skipped directory is
+/// one entry; its contents are not listed.
+pub fn skipped_entries(root: &Path, opts: &WalkOptions) -> std::io::Result<Vec<PathBuf>> {
+    fn go(
+        root: &Path,
+        rel: &Path,
+        opts: &WalkOptions,
+        out: &mut Vec<PathBuf>,
+    ) -> std::io::Result<()> {
+        for e in std::fs::read_dir(root.join(rel))? {
+            let e = e?;
+            let name = e.file_name();
+            let p = rel.join(&name);
+            if opts.skips(&name.to_string_lossy()) {
+                out.push(p);
+            } else if e.file_type()?.is_dir() {
+                go(root, &p, opts, out)?;
+            }
+        }
+        Ok(())
+    }
+    let mut out = Vec::new();
+    go(root, Path::new(""), opts, &mut out)?;
+    out.sort();
+    Ok(out)
 }
 
 /// Changed files: worktree vs HEAD, untracked, and (PR mode) `base...HEAD`. `None` when git
@@ -121,6 +217,62 @@ fn git_changed(root: &Path, base: Option<&str>) -> Option<Vec<PathBuf>> {
         out.extend(git(&["diff", "--name-only", "--relative", &range]).unwrap_or_default());
     }
     Some(out)
+}
+
+/// Per-rule SARIF metadata, from `Doctor::rule_meta`. Unset fields are left out of the rule.
+#[derive(Debug, Clone, Default)]
+pub struct RuleMeta {
+    name: Option<String>,
+    short: Option<String>,
+    full: Option<String>,
+    help_uri: Option<String>,
+    level: Option<Severity>,
+}
+
+impl RuleMeta {
+    pub fn new() -> Self {
+        Self::default()
+    }
+    pub fn name(mut self, v: impl Into<String>) -> Self {
+        self.name = Some(v.into());
+        self
+    }
+    pub fn short_description(mut self, v: impl Into<String>) -> Self {
+        self.short = Some(v.into());
+        self
+    }
+    pub fn full_description(mut self, v: impl Into<String>) -> Self {
+        self.full = Some(v.into());
+        self
+    }
+    pub fn help_uri(mut self, v: impl Into<String>) -> Self {
+        self.help_uri = Some(v.into());
+        self
+    }
+    /// `defaultConfiguration.level` (SARIF level of the severity).
+    pub fn default_level(mut self, s: Severity) -> Self {
+        self.level = Some(s);
+        self
+    }
+    pub(crate) fn to_json(&self, id: &str) -> serde_json::Value {
+        let mut r = serde_json::json!({"id": id});
+        if let Some(v) = &self.name {
+            r["name"] = v.as_str().into();
+        }
+        if let Some(v) = &self.short {
+            r["shortDescription"] = serde_json::json!({"text": v});
+        }
+        if let Some(v) = &self.full {
+            r["fullDescription"] = serde_json::json!({"text": v});
+        }
+        if let Some(v) = &self.help_uri {
+            r["helpUri"] = v.as_str().into();
+        }
+        if let Some(v) = self.level {
+            r["defaultConfiguration"] = serde_json::json!({"level": v.sarif_level()});
+        }
+        r
+    }
 }
 
 #[derive(Debug, Default)]
@@ -155,7 +307,18 @@ pub trait Check {
         true
     }
     fn run(&self, ctx: &Ctx) -> CheckResult;
+    /// `run` plus keyed JSON for `envelope.data` (see [`CheckData`]). Default: `run` and no data.
+    /// A check that contributes data overrides this and implements `run` as `self.run_data(ctx).0`.
+    fn run_data(&self, ctx: &Ctx) -> (CheckResult, CheckData) {
+        (self.run(ctx), CheckData::new())
+    }
 }
+
+/// Keyed JSON one check contributes to `envelope.data`, merged after the kit's own keys in
+/// registration order: a later check with the same key replaces the earlier value. A key the kit
+/// reserves (`doctor::RESERVED_DATA_KEYS`) is ignored, and the collision is an info note in
+/// `data.notes`.
+pub type CheckData = serde_json::Map<String, serde_json::Value>;
 
 /// Build a finding with a stable fingerprint (`id|file|line`) and a sanitized message.
 /// Set `.remedy` / `.evidence` on the result as needed.

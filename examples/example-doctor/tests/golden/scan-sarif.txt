@@ -199,6 +199,12 @@ exit: 1
           "name": "example-doctor",
           "rules": [
             {
+              "id": "docs.no-readme"
+            },
+            {
+              "id": "hygiene.todo"
+            },
+            {
               "id": "secret.aws-key"
             },
             {
@@ -206,12 +212,6 @@ exit: 1
             },
             {
               "id": "size.large-file"
-            },
-            {
-              "id": "hygiene.todo"
-            },
-            {
-              "id": "docs.no-readme"
             }
           ],
           "version": "0.1.0"
