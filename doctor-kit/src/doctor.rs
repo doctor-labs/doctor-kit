@@ -34,6 +34,20 @@ pub struct Collected {
     pub gaps: usize,
 }
 
+/// Keys the kit writes into `envelope.data`. A check's `run_data` may not use them: such a key is
+/// ignored and reported as an info note in `data.notes`. Keep this list in step with `collect`
+/// (a test in `tests/datachan_023.rs` fails when they differ).
+pub const RESERVED_DATA_KEYS: &[&str] = &[
+    "categories",
+    "checks_run",
+    "skipped",
+    "advice",
+    "scope",
+    "files",
+    "panicked",
+    "notes",
+];
+
 /// Why a scan could not produce a report. `finish` (and the CLI) print `envelope` on stdout when
 /// present, then `stderr` verbatim, then exit with `exit`. (Boxed: an envelope is large.)
 #[derive(Debug, Clone)]
@@ -374,6 +388,7 @@ pub trait Doctor {
         let cats = self.categories();
         let (mut findings, mut advice, mut skipped) = (Vec::new(), Map::new(), Vec::new());
         let mut check_data = crate::check::CheckData::new();
+        let mut reserved_hits: Vec<String> = Vec::new();
         let (mut ran, mut panicked) = (0, Vec::new());
         for c in self.checks() {
             if !ctx.config.check_enabled(c.id()) || !c.applies(ctx) {
@@ -386,7 +401,16 @@ pub trait Doctor {
             let r = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| c.run_data(ctx)))
             {
                 Ok((r, d)) => {
-                    check_data.extend(d);
+                    for (k, v) in d {
+                        if RESERVED_DATA_KEYS.contains(&k.as_str()) {
+                            reserved_hits.push(format!(
+                                "check {} data key {k} is reserved by the kit and was ignored",
+                                c.id()
+                            ));
+                        } else {
+                            check_data.insert(k, v);
+                        }
+                    }
                     r
                 }
                 Err(p) => {
@@ -426,9 +450,7 @@ pub trait Doctor {
             "advice": advice, "scope": format!("{:?}", ctx.scope).to_lowercase(),
             "files": ctx.files.len(),
         });
-        if let Value::Object(m) = &mut data {
-            m.extend(check_data);
-        }
+        let mut notes: Vec<Value> = Vec::new();
         let walk_opts = self.walk_options();
         if walk_opts.reports_skipped() {
             let skipped = crate::check::skipped_entries(&ctx.root, &walk_opts).unwrap_or_default();
@@ -439,12 +461,23 @@ pub trait Doctor {
                     .map(|p| p.to_string_lossy().into_owned())
                     .collect();
                 let more = if skipped.len() > 5 { ", ..." } else { "" };
-                data["notes"] = json!([{"level": "info", "text": format!(
+                notes.push(json!({"level": "info", "text": format!(
                     "{} entries skipped by the directory walk: {}{more}",
                     skipped.len(),
                     shown.join(", ")
-                )}]);
+                )}));
             }
+        }
+        notes.extend(
+            reserved_hits
+                .iter()
+                .map(|t| json!({"level": "info", "text": t})),
+        );
+        if !notes.is_empty() {
+            data["notes"] = Value::Array(notes);
+        }
+        if let Value::Object(m) = &mut data {
+            m.extend(check_data);
         }
         if !panicked.is_empty() {
             data["panicked"] = json!(panicked); // only present when a check panicked

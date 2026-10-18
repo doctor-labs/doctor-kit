@@ -315,9 +315,9 @@ pub trait Check {
 }
 
 /// Keyed JSON one check contributes to `envelope.data`, merged after the kit's own keys in
-/// registration order: a later check with the same key replaces the earlier value. Do not use a
-/// kit key (`categories`, `checks_run`, `skipped`, `advice`, `scope`, `files`, `panicked`,
-/// `notes`): it would replace the kit's value.
+/// registration order: a later check with the same key replaces the earlier value. A key the kit
+/// reserves (`doctor::RESERVED_DATA_KEYS`) is ignored, and the collision is an info note in
+/// `data.notes`.
 pub type CheckData = serde_json::Map<String, serde_json::Value>;
 
 /// Build a finding with a stable fingerprint (`id|file|line`) and a sanitized message.

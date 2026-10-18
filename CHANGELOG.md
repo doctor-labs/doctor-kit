@@ -25,8 +25,9 @@ every new hook is a defaulted trait method or a new function, and `compat_020.rs
   keep the `{"id": ...}` shape.
 - Per-check data (#35): `Check::run_data(ctx) -> (CheckResult, CheckData)`, a defaulted method (`run` stays the
   required method). The kit merges each check's keys into `envelope.data` after its own keys, in registration
-  order; a later check with the same key replaces the earlier value. A key equal to a kit key (`checks_run`,
-  `files`, `notes`, ...) replaces the kit's value, so do not use one. `CheckResult` is unchanged (no field added).
+  order; a later check with the same key replaces the earlier value. A key the kit reserves
+  (`doctor::RESERVED_DATA_KEYS`: `categories`, `checks_run`, `skipped`, `advice`, `scope`, `files`, `panicked`,
+  `notes`) is ignored, and each collision adds one info note to `data.notes`. `CheckResult` is unchanged (no field added).
 - `find` for tools (android-doctor#223): the defaulted `Doctor::find_filter(args)` returns `Ok(None)` (default:
   the text search and its usage error, unchanged) or a `FindFilter` (`Box<dyn Fn(&Node) -> bool>`). The tool
   parses its own options (`--name`, `--selinux`) and the kit walks the tree and formats the result as before.
