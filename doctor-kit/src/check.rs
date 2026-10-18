@@ -209,6 +209,62 @@ fn git_changed(root: &Path, base: Option<&str>) -> Option<Vec<PathBuf>> {
     Some(out)
 }
 
+/// Per-rule SARIF metadata, from `Doctor::rule_meta`. Unset fields are left out of the rule.
+#[derive(Debug, Clone, Default)]
+pub struct RuleMeta {
+    name: Option<String>,
+    short: Option<String>,
+    full: Option<String>,
+    help_uri: Option<String>,
+    level: Option<Severity>,
+}
+
+impl RuleMeta {
+    pub fn new() -> Self {
+        Self::default()
+    }
+    pub fn name(mut self, v: impl Into<String>) -> Self {
+        self.name = Some(v.into());
+        self
+    }
+    pub fn short_description(mut self, v: impl Into<String>) -> Self {
+        self.short = Some(v.into());
+        self
+    }
+    pub fn full_description(mut self, v: impl Into<String>) -> Self {
+        self.full = Some(v.into());
+        self
+    }
+    pub fn help_uri(mut self, v: impl Into<String>) -> Self {
+        self.help_uri = Some(v.into());
+        self
+    }
+    /// `defaultConfiguration.level` (SARIF level of the severity).
+    pub fn default_level(mut self, s: Severity) -> Self {
+        self.level = Some(s);
+        self
+    }
+    pub(crate) fn to_json(&self, id: &str) -> serde_json::Value {
+        let mut r = serde_json::json!({"id": id});
+        if let Some(v) = &self.name {
+            r["name"] = v.as_str().into();
+        }
+        if let Some(v) = &self.short {
+            r["shortDescription"] = serde_json::json!({"text": v});
+        }
+        if let Some(v) = &self.full {
+            r["fullDescription"] = serde_json::json!({"text": v});
+        }
+        if let Some(v) = &self.help_uri {
+            r["helpUri"] = v.as_str().into();
+        }
+        if let Some(v) = self.level {
+            r["defaultConfiguration"] = serde_json::json!({"level": v.sarif_level()});
+        }
+        r
+    }
+}
+
 #[derive(Debug, Default)]
 pub struct CheckResult {
     pub findings: Vec<Finding>,

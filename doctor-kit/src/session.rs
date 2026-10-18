@@ -586,7 +586,7 @@ impl<'a> Session<'a> {
         };
         let v = match fmt.as_str() {
             "json" => self.env.to_value(),
-            "sarif" => to_sarif(&self.env),
+            "sarif" => to_sarif_with(&self.env, &|id| self.doctor.rule_meta(id)),
             _ => return Err("export formats: json, sarif".into()),
         };
         std::fs::write(path, serde_json::to_string_pretty(&v).unwrap() + "\n")
@@ -743,9 +743,22 @@ pub fn default_tree(env: &Envelope, ctx: &Ctx) -> Node {
 
 /// SARIF 2.1.0 via doctor-core's scaffold.
 pub fn to_sarif(env: &Envelope) -> Value {
+    to_sarif_with(env, &|_| None)
+}
+
+/// SARIF with per-rule metadata from `meta` (by rule id). Rules are listed once each, sorted by id.
+/// A rule without metadata is `{"id": ...}`.
+pub fn to_sarif_with(env: &Envelope, meta: &dyn Fn(&str) -> Option<crate::check::RuleMeta>) -> Value {
     let mut ids: Vec<&str> = env.findings.iter().map(|f| f.id.as_str()).collect();
+    ids.sort_unstable();
     ids.dedup();
-    let rules = ids.iter().map(|id| json!({"id": id})).collect();
+    let rules = ids
+        .iter()
+        .map(|id| match meta(id) {
+            Some(m) => m.to_json(id),
+            None => json!({"id": id}),
+        })
+        .collect();
     let results = env
         .findings
         .iter()

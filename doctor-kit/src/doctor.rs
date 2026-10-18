@@ -345,8 +345,15 @@ pub trait Doctor {
     /// The SARIF 2.1.0 document written by `--sarif`, as text. Default: the kit's document, pretty
     /// with a trailing newline. A tool with its own locations or serialisation builds its own
     /// (e.g. with `doctor_core::sarif::document`).
+    /// SARIF metadata for a rule id: name, descriptions, help URI, default level. Default: none,
+    /// so the rule is `{"id": ...}` as in 0.2.2.
+    fn rule_meta(&self, _id: &str) -> Option<crate::check::RuleMeta> {
+        None
+    }
     fn render_sarif(&self, env: &Envelope) -> String {
-        serde_json::to_string_pretty(&crate::session::to_sarif(env)).unwrap() + "\n"
+        serde_json::to_string_pretty(&crate::session::to_sarif_with(env, &|id| self.rule_meta(id)))
+            .unwrap()
+            + "\n"
     }
     /// Score from a collected result (gives access to `gaps`). Default: [`Doctor::score`].
     fn score_collected(&self, c: &Collected, ctx: &Ctx) -> Option<Score> {
