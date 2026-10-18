@@ -422,12 +422,34 @@ fn builtin(d: &dyn Doctor, cli: Cli) -> Result<u8, String> {
 /// Run the CLI with the tool's extensions. `meta` describes the doctor for `--help` and parsing;
 /// `build` creates the doctor from the root matches once the command line parsed (look inside
 /// `m.subcommand()` for the subcommand's own arguments).
+/// argv as UTF-8. A non-UTF-8 argument is a usage error (exit 2 at the call site), never a panic.
+fn utf8_argv(args: impl IntoIterator<Item = std::ffi::OsString>) -> Result<Vec<String>, String> {
+    args.into_iter()
+        .enumerate()
+        .map(|(i, a)| {
+            a.into_string().map_err(|a| {
+                format!(
+                    "argument {} is not valid UTF-8: {}",
+                    i + 1,
+                    a.to_string_lossy()
+                )
+            })
+        })
+        .collect()
+}
+
 pub fn run_with<D: Doctor>(
     meta: Meta,
     ext: Extensions<D>,
     build: impl FnOnce(&ArgMatches) -> Result<D, String>,
 ) -> ExitCode {
-    let argv: Vec<String> = std::env::args().collect();
+    let argv = match utf8_argv(std::env::args_os()) {
+        Ok(a) => a,
+        Err(e) => {
+            warnln!("error: {e}");
+            return ExitCode::from(2);
+        }
+    };
     let matches = match command_with(&meta, &ext).try_get_matches_from(&argv) {
         Ok(m) => m,
         Err(e) => {
@@ -552,5 +574,25 @@ mod tests {
             .unwrap();
         let (_, sm) = m.subcommand().unwrap();
         assert_eq!(sm.get_one::<Severity>("fail_on"), Some(&Severity::Critical));
+    }
+}
+
+#[cfg(all(test, unix))]
+mod argv_tests {
+    use super::utf8_argv;
+    use std::ffi::OsString;
+    use std::os::unix::ffi::OsStringExt;
+
+    #[test]
+    fn non_utf8_argument_is_a_usage_error_not_a_panic() {
+        let bad = OsString::from_vec(vec![b's', b'c', 0xff]);
+        let err = utf8_argv(vec![OsString::from("tool"), bad]).unwrap_err();
+        assert!(err.starts_with("argument 2 is not valid UTF-8"), "{err}");
+    }
+
+    #[test]
+    fn utf8_argv_passes_through() {
+        let v = utf8_argv(vec![OsString::from("tool"), OsString::from("scan")]).unwrap();
+        assert_eq!(v, vec!["tool", "scan"]);
     }
 }
