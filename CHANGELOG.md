@@ -1,5 +1,38 @@
 # Changelog
 
+## 0.2.3
+
+Patch release for the doctor-labs/doctor-kit issues #32 to #35 (found building firmware-doctor) and the
+`find` verb of android-doctor#223. Source-compatible with 0.2.0 to 0.2.2: no field is added to a public struct,
+every new hook is a defaulted trait method or a new function, and `compat_020.rs`, `compat_021.rs` and
+`compat_023.rs` still compile.
+
+### Fixed
+- SARIF: the `rules` array is sorted by id and lists each id once. Before, duplicates were removed only when
+  adjacent, so an id seen at two severities could appear twice. Golden change: `scan-sarif.txt` of
+  example-doctor (rule objects in id order; regenerated deliberately, nothing else changed).
+- `cli::run` reads argv with `args_os`. A non-UTF-8 argument prints `error: argument N is not valid UTF-8: ...`
+  and exits 2 instead of panicking (exit 101).
+
+### Added
+- Directory walk (#32): `WalkOptions` (`include_hidden`, `skip_names`, `report_skipped`), `Ctx::with_walk`,
+  `check::skipped_entries`, and the defaulted `Doctor::walk_options`. The default walk is unchanged (dot-entries,
+  `target` and `node_modules` skipped silently). With `report_skipped(true)` the default `collect` adds an info
+  note to `data.notes` naming the skipped entries. It is not a coverage gap: no INCOMPLETE banner and no score
+  change, so a tool that wants the banner sets `score.coverage_gaps` itself.
+- SARIF rule metadata (#33): `RuleMeta` (name, short and full description, help URI, default level),
+  `session::to_sarif_with`, and the defaulted `Doctor::rule_meta(id)`. `to_sarif` and rules without metadata
+  keep the `{"id": ...}` shape.
+- Per-check data (#35): `Check::run_data(ctx) -> (CheckResult, CheckData)`, a defaulted method (`run` stays the
+  required method). The kit merges each check's keys into `envelope.data` after its own keys, in registration
+  order; a later check with the same key replaces the earlier value. A key equal to a kit key (`checks_run`,
+  `files`, `notes`, ...) replaces the kit's value, so do not use one. `CheckResult` is unchanged (no field added).
+- `find` for tools (android-doctor#223): the defaulted `Doctor::find_filter(args)` returns `Ok(None)` (default:
+  the text search and its usage error, unchanged) or a `FindFilter` (`Box<dyn Fn(&Node) -> bool>`). The tool
+  parses its own options (`--name`, `--selinux`) and the kit walks the tree and formats the result as before.
+  Reading of the issue: the kit's `find` is text-only and a tool cannot replace it because the built-in verb
+  wins over `commands()`; a predicate hook is the smallest change that covers options.
+
 ## 0.2.2
 
 Patch release from the sim-doctor migration. Source-compatible with 0.2.0 and 0.2.1: no field is added to a

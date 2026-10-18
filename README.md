@@ -129,8 +129,8 @@ runs unchanged.
 - **Report-only commands, own reports, own baseline parsing** (0.2.1): `render_human`, `finish_with(.. FinishOpts {
   never_fail: true })`, `load_baseline`, `preflight_error`, `mcp_texts`, `ci_overwrite`, lazy `expand` trees.
 - **Ctrl-C**: `interrupt::{install, interrupted, check}`; `scan` exits 130 with an `interrupted` failure envelope.
-- **0.2.3 hooks**: `Check::run_data` (keyed JSON merged into `envelope.data`, later check wins; see the
-  `large_files` key in `examples/example-doctor`), `Doctor::walk_options` (`WalkOptions`: include dot-entries,
+- **0.2.3 hooks**: `Check::run_data` (keyed JSON merged into `envelope.data`; a later check with the same key
+  wins; a check returns `(CheckResult, CheckData)`, and `run` stays required), `Doctor::walk_options` (`WalkOptions`: include dot-entries,
   replace the skip list, report skipped entries as a `data.notes` info note), `Doctor::rule_meta` (SARIF rule
   name, descriptions, help URI, default level), and `Doctor::find_filter` (a tool's own `find` predicate in `shell`).
 
