@@ -393,7 +393,7 @@ pub trait Doctor {
         let (mut ran, mut panicked) = (0, Vec::new());
         let checks: Vec<Box<dyn Check>> = self.checks();
         let total = checks.len();
-        let progress: &dyn crate::progress::Progress = ctx.progress.as_progress();
+        let progress = crate::progress::of(&ctx.root);
         for (i, c) in checks.into_iter().enumerate() {
             let index = i + 1;
             if !ctx.config.check_enabled(c.id()) || !c.applies(ctx) {

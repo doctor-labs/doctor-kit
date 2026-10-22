@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.2.4
+
+Patch release for live scan progress (#29). Source-compatible with 0.2.0 to 0.2.3.
+
+### Added
+- Scan progress events: `Progress`/`ProgressEvent` and `Ctx::with_progress`, emitted from the scan loop
+  (no output by default) (#29).
+- Terminal status line: `ProgressView` and `StderrProgress` (a `Progress` sink that writes
+  `[bar] done/total · <n> <severity> · latest: <finding>` to stderr and clears on completion or drop),
+  attached to `scan` and `fix` only when stderr is a terminal; off under pipes and CI so JSON/SARIF/stdout
+  output stays byte-identical (#29).
+
 ## 0.2.3
 
 Patch release for the doctor-labs/doctor-kit issues #32 to #35 (found building firmware-doctor) and the
@@ -50,10 +62,6 @@ public struct, new behaviour sits behind defaulted hooks or new functions, and `
   (JSON-RPC 2.0); notifications stay silent.
 
 ### Added
-- Terminal status line: `ProgressView` and `StderrProgress` (a `Progress` sink that writes
-  `[bar] done/total \u{b7} <n> <severity> \u{b7} latest: <finding>` to stderr), attached to `scan` and
-  `fix` only when stderr is a terminal; off under pipes and CI so JSON/SARIF/stdout output stays
-  byte-identical (#29).
 - `Doctor::interrupted_envelope(&Envelope) -> Option<Envelope>`: the tool's shape for the Ctrl-C envelope.
 - `mcp::exec_self_with` + `ExecFailure` (kind, stdout, stderr, code, signal, limits): the tool words every
   runner error; `mcp::fill` with `{x}`, `{x_json}` (JSON literal) and `{x_esc}` (escaped) placeholders in
@@ -62,8 +70,6 @@ public struct, new behaviour sits behind defaulted hooks or new functions, and `
   An `INCOMPLETE` banner when `score.coverage_gaps > 0` and `data.notes` are shown first by the faces,
   `shell` and `explore`; never in `--json` or SARIF.
 - `out::say` and the `say!`/`sayln!` macros (fallible stdout).
-- Scan progress events: `Progress`/`ProgressEvent` and `Ctx::with_progress`, emitted from the scan loop
-  (no output by default) (#29).
 
 ## 0.2.1
 

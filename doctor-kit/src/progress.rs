@@ -9,7 +9,9 @@
 use doctor_core::Severity;
 use std::io::IsTerminal;
 use std::io::Write as _;
-use std::sync::{Arc, Mutex};
+use std::path::PathBuf;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex, OnceLock};
 
 /// One step the scan loop reports. Passed by reference to [`Progress::event`]
 /// so a sink can observe without taking ownership.
@@ -40,16 +42,11 @@ pub enum ProgressEvent {
 }
 
 /// A sink for [`ProgressEvent`]s. Implementors must be `Send + Sync` so a
-/// no-op default can be shared across the scan. The `Debug` bound on the trait
-/// object is avoided: `Ctx` keeps progress behind a private wrapper with a
-/// manual `Debug` impl instead, so deriving `Debug`/`Clone` on `Ctx` is
-/// unaffected.
+/// no-op default can be shared across the scan.
 pub trait Progress: Send + Sync {
     fn event(&self, e: &ProgressEvent);
 }
 
-/// No-op progress sink: absorbs every event silently. The scan loop uses this
-/// when no sink was attached via [`crate::check::Ctx::with_progress`].
 #[derive(Default)]
 struct Noop;
 
@@ -58,39 +55,41 @@ impl Progress for Noop {
     fn event(&self, _e: &ProgressEvent) {}
 }
 
-/// Small wrapper so `Arc<dyn Progress>` stays invisible to `Ctx`'s `Debug`
-/// (a trait object's `Debug` would otherwise require `Progress: Debug`, which
-/// most implementors won't satisfy and which would break `Ctx`'s derives).
-#[derive(Clone)]
-pub(crate) struct ProgressSink(Arc<dyn Progress>);
+type SinkEntry = ((usize, usize), Arc<dyn Progress>);
 
-impl std::fmt::Debug for ProgressSink {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_tuple("ProgressSink").finish()
-    }
+static NEXT_TAG: AtomicUsize = AtomicUsize::new(64);
+static SINKS: OnceLock<Mutex<Vec<SinkEntry>>> = OnceLock::new();
+
+fn sinks() -> &'static Mutex<Vec<SinkEntry>> {
+    SINKS.get_or_init(|| Mutex::new(Vec::new()))
 }
 
-impl ProgressSink {
-    /// Wrap a caller-supplied sink, replacing the no-op default.
-    pub(crate) fn from_arc(p: Arc<dyn Progress>) -> Self {
-        Self(p)
-    }
-    pub(crate) fn as_progress(&self) -> &dyn Progress {
-        self.0.as_ref()
-    }
+fn root_key(root: &PathBuf) -> (usize, usize) {
+    (
+        root.as_os_str() as *const _ as *const u8 as usize,
+        root.capacity(),
+    )
 }
 
-impl Default for ProgressSink {
-    fn default() -> Self {
-        Self(Arc::new(Noop))
-    }
+/// Attach a progress sink to a `Ctx`'s `root` buffer without adding fields to `Ctx`
+/// (preserving 0.2.0..0.2.3 struct-literal compatibility).
+pub(crate) fn attach(root: &mut PathBuf, p: Arc<dyn Progress>) {
+    let extra = NEXT_TAG.fetch_add(1, Ordering::Relaxed);
+    let mut tagged = PathBuf::with_capacity(root.as_os_str().len().saturating_add(extra));
+    tagged.push(&*root);
+    *root = tagged;
+    let key = root_key(root);
+    sinks().lock().unwrap().push((key, p));
 }
 
-impl Progress for ProgressSink {
-    #[inline]
-    fn event(&self, e: &ProgressEvent) {
-        self.0.event(e);
+pub(crate) fn of(root: &PathBuf) -> Arc<dyn Progress> {
+    let key = root_key(root);
+    if let Some(m) = SINKS.get() {
+        if let Some((_, p)) = m.lock().unwrap().iter().rev().find(|(k, _)| *k == key) {
+            return p.clone();
+        }
     }
+    Arc::new(Noop)
 }
 
 /// Terminal status line shown while a scan runs (issue #29).
@@ -187,7 +186,7 @@ impl ProgressView {
 /// terminal, and writes nothing at all otherwise (e.g. under a pipe or in CI, so
 /// machine output on stdout stays byte-identical).
 pub struct StderrProgress {
-    view: Mutex<ProgressView>,
+    view: Mutex<(ProgressView, bool)>,
 }
 
 impl Default for StderrProgress {
@@ -200,7 +199,7 @@ impl StderrProgress {
     /// Make a new stderr status-line sink.
     pub fn new() -> Self {
         Self {
-            view: Mutex::new(ProgressView::new()),
+            view: Mutex::new((ProgressView::new(), false)),
         }
     }
 
@@ -218,16 +217,28 @@ impl Progress for StderrProgress {
         if !std::io::stderr().is_terminal() {
             return;
         }
-        let mut view = self.view.lock().unwrap();
-        view.apply(e);
-        let line = view.line(Self::cols());
+        let mut guard = self.view.lock().unwrap();
+        guard.0.apply(e);
+        let line = guard.0.line(Self::cols());
         if matches!(e, ProgressEvent::Done { .. }) {
-            // Clear the line on completion.
+            guard.1 = false;
             let mut err = std::io::stderr();
             let _ = err.write_all(b"\r\x1b[K");
         } else {
+            guard.1 = true;
             let mut err = std::io::stderr();
             let _ = err.write_fmt(format_args!("\r{line}\x1b[K"));
+        }
+    }
+}
+
+impl Drop for StderrProgress {
+    fn drop(&mut self) {
+        if let Ok(guard) = self.view.lock() {
+            if guard.1 && std::io::stderr().is_terminal() {
+                let mut err = std::io::stderr();
+                let _ = err.write_all(b"\r\x1b[K");
+            }
         }
     }
 }
