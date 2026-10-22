@@ -26,6 +26,14 @@ pub struct Ctx {
 }
 
 impl Ctx {
+    /// Attach a progress sink to this context. The sink receives
+    /// [`crate::ProgressEvent`]s from the scan loop (issue #29). Returns `self`
+    /// by value for chaining: `ctx.with_progress(progress)`.
+    pub fn with_progress(mut self, p: std::sync::Arc<dyn crate::Progress>) -> Ctx {
+        crate::progress::attach(&mut self.root, p);
+        self
+    }
+
     pub fn new(
         root: impl Into<PathBuf>,
         scope: Scope,

@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.2.4
+
+Patch release for live scan progress (#29). Source-compatible with 0.2.0 to 0.2.3.
+
+### Added
+- Scan progress events: `Progress`/`ProgressEvent` and `Ctx::with_progress`, emitted from the scan loop
+  (no output by default) (#29).
+- Terminal status line: `ProgressView` and `StderrProgress` (a `Progress` sink that writes
+  `[bar] done/total · <n> <severity> · latest: <finding>` to stderr and clears on completion or drop),
+  attached to `scan` and `fix` only when stderr is a terminal; off under pipes and CI so JSON/SARIF/stdout
+  output stays byte-identical (#29).
+
 ## 0.2.3
 
 Patch release for the doctor-labs/doctor-kit issues #32 to #35 (found building firmware-doctor) and the

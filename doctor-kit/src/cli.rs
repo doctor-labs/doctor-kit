@@ -6,6 +6,7 @@ use crate::doctor::{Doctor, TargetKind};
 use crate::install::Agent;
 use clap::{ArgMatches, Args, CommandFactory, FromArgMatches, Parser, Subcommand};
 use doctor_core::Severity;
+use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
@@ -183,9 +184,14 @@ pub(crate) fn ctx_from(d: &dyn Doctor, path: &Path, o: &Opts) -> Result<Ctx, Str
 fn fix(d: &dyn Doctor, a: FixArgs) -> Result<u8, String> {
     let env = match &a.from {
         Some(p) => crate::fix::load_envelope(p)?,
-        None => d
-            .try_scan(&ctx_from(d, &a.path, &a.opts)?)
-            .map_err(|f| f.to_string())?,
+        None => {
+            let mut ctx = ctx_from(d, &a.path, &a.opts)?;
+            if std::io::stderr().is_terminal() {
+                ctx =
+                    ctx.with_progress(std::sync::Arc::new(crate::progress::StderrProgress::new()));
+            }
+            d.try_scan(&ctx).map_err(|f| f.to_string())?
+        }
     };
     let hits = crate::fix::select(&env, a.id.as_deref())?;
     if hits.is_empty() {
@@ -309,6 +315,11 @@ fn scan(d: &dyn Doctor, a: ScanArgs) -> Result<u8, String> {
         Err(f) => return Ok(crate::output::report_failure(d, &f)),
     };
     let ctx = ctx_of(d, &a.target)?;
+    let ctx = if std::io::stderr().is_terminal() {
+        ctx.with_progress(std::sync::Arc::new(crate::progress::StderrProgress::new()))
+    } else {
+        ctx
+    };
     Ok(crate::output::finish(d, pre, d.try_scan(&ctx), &o))
 }
 

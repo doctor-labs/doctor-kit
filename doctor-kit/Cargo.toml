@@ -1,6 +1,6 @@
 [package]
 name = "doctor-kit"
-version = "0.2.3"
+version = "0.2.4"
 edition = "2021"
 description = "Reusable runtime for doctor CLI tools: checks, score, faces, themes, REPL, TUI"
 license = "MIT"
